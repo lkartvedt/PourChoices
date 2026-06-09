@@ -16,6 +16,8 @@ struct PourChoicesApp: App {
             DrinkEntry.self,
             LocationStop.self,
             OtherEntry.self,
+            FoodEntry.self,
+            WaterEntry.self,
             UserProfile.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)

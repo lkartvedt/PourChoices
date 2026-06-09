@@ -26,6 +26,12 @@ final class DrinkingSession {
     @Relationship(deleteRule: .cascade, inverse: \OtherEntry.session)
     var otherEntries: [OtherEntry] = []
     
+    @Relationship(deleteRule: .cascade, inverse: \FoodEntry.session)
+    var food: [FoodEntry] = []
+    
+    @Relationship(deleteRule: .cascade, inverse: \WaterEntry.session)
+    var water: [WaterEntry] = []
+    
     init(startTime: Date = Date()) {
         self.id = UUID()
         self.startTime = startTime
@@ -116,6 +122,40 @@ final class OtherEntry {
     }
 }
 
+// MARK: - Food Entry (Pizza, etc.)
+@Model
+final class FoodEntry {
+    var id: UUID
+    var timestamp: Date
+    var foodType: String // "Pizza", "Burger", etc.
+    var quantity: Int // Number of slices/items
+    
+    var session: DrinkingSession?
+    
+    init(timestamp: Date = Date(), foodType: String, quantity: Int = 1) {
+        self.id = UUID()
+        self.timestamp = timestamp
+        self.foodType = foodType
+        self.quantity = quantity
+    }
+}
+
+// MARK: - Water Entry
+@Model
+final class WaterEntry {
+    var id: UUID
+    var timestamp: Date
+    var volumeOz: Double
+    
+    var session: DrinkingSession?
+    
+    init(timestamp: Date = Date(), volumeOz: Double = 8.0) {
+        self.id = UUID()
+        self.timestamp = timestamp
+        self.volumeOz = volumeOz
+    }
+}
+
 // MARK: - User Profile (for BAC calculation)
 @Model
 final class UserProfile {
@@ -130,16 +170,19 @@ final class UserProfile {
 
 // MARK: - BAC Calculator
 struct BACCalculator {
-    /// Widmark formula for BAC estimation
-    /// BAC = (Alcohol consumed in grams / (Body weight in grams × r)) - (0.015 × Hours)
+    /// Enhanced Widmark formula with food and hydration factors
+    /// BAC = (Alcohol consumed in grams / (Body weight in grams × r)) × (1 - food factor) - (0.015 × Hours) - (hydration reduction)
     /// r = 0.68 for men, 0.55 for women
-    static func estimateBAC(drinks: [DrinkEntry], weight: Double, sex: String, at time: Date) -> Double {
+    /// Food slows absorption and reduces peak BAC by ~20-30% per substantial meal
+    /// Water helps with metabolism and dilution
+    static func estimateBAC(drinks: [DrinkEntry], food: [FoodEntry], water: [WaterEntry], weight: Double, sex: String, at time: Date) -> Double {
         let r = sex.lowercased() == "female" ? 0.55 : 0.68
         let weightInGrams = weight * 453.592 // lbs to grams
         
         var totalAlcoholGrams: Double = 0
         var earliestDrinkTime: Date?
         
+        // Calculate total alcohol consumed
         for drink in drinks where drink.timestamp <= time {
             // Calculate pure alcohol in oz, convert to grams (1 oz = 28.35 grams)
             let pureAlcoholOz = drink.volumeOz * (drink.alcoholContent / 100.0)
@@ -155,12 +198,33 @@ struct BACCalculator {
             return 0
         }
         
+        // Calculate food factor (reduces BAC absorption)
+        // Each slice of pizza reduces absorption by ~15%
+        let foodSlices = food.filter { $0.timestamp <= time }.reduce(0) { $0 + $1.quantity }
+        let foodReduction = min(0.40, Double(foodSlices) * 0.15) // Max 40% reduction
+        
+        // Calculate water benefit (improves metabolism slightly)
+        // Each 8oz of water adds ~0.005% per hour to metabolism rate
+        let waterOz = water.filter { $0.timestamp <= time }.reduce(0.0) { $0 + $1.volumeOz }
+        let waterGlasses = waterOz / 8.0
+        let extraMetabolism = min(0.010, waterGlasses * 0.002) // Max 0.010% bonus per hour
+        
+        // Time-based metabolism
         let hoursElapsed = time.timeIntervalSince(startTime) / 3600.0
-        let metabolismRate = 0.015 * hoursElapsed
+        let baseMetabolismRate = 0.015 * hoursElapsed
+        let totalMetabolismRate = (0.015 + extraMetabolism) * hoursElapsed
         
-        let bac = (totalAlcoholGrams / (weightInGrams * r)) * 100 - metabolismRate
+        // Calculate BAC with food reduction
+        let rawBAC = (totalAlcoholGrams / (weightInGrams * r)) * 100
+        let foodAdjustedBAC = rawBAC * (1.0 - foodReduction)
+        let finalBAC = foodAdjustedBAC - totalMetabolismRate
         
-        return max(0, bac) // Can't be negative
+        return max(0, finalBAC) // Can't be negative
+    }
+    
+    /// Legacy method for backward compatibility (no food/water)
+    static func estimateBAC(drinks: [DrinkEntry], weight: Double, sex: String, at time: Date) -> Double {
+        return estimateBAC(drinks: drinks, food: [], water: [], weight: weight, sex: sex, at: time)
     }
 }
 

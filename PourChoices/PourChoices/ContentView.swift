@@ -127,6 +127,8 @@ struct ActiveSessionView: View {
     var currentBAC: Double {
         BACCalculator.estimateBAC(
             drinks: session.drinks,
+            food: session.food,
+            water: session.water,
             weight: userProfile.weight,
             sex: userProfile.sex,
             at: Date()
@@ -185,6 +187,24 @@ struct ActiveSessionView: View {
                 }
                 
                 HStack(spacing: 12) {
+                    Button(action: addPizza) {
+                        Label("Pizza", systemImage: "🍕")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.systemOrange).opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    
+                    Button(action: addWater) {
+                        Label("Water", systemImage: "💧")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.systemBlue).opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+                
+                HStack(spacing: 12) {
                     Button(action: { showingAddOther = true }) {
                         Label("Zyn/Cig", systemImage: "smoke")
                             .font(.subheadline)
@@ -226,7 +246,7 @@ struct ActiveSessionView: View {
             .padding()
         }
         .sheet(isPresented: $showingAddDrink) {
-            AddDrinkView(session: session, locationTracker: locationTracker)
+            AddDrinkView(session: session)
         }
         .sheet(isPresented: $showingAddOther) {
             AddOtherView(session: session)
@@ -297,6 +317,22 @@ struct ActiveSessionView: View {
         }
     }
     
+    private func addPizza() {
+        withAnimation {
+            let pizza = FoodEntry(foodType: "Pizza", quantity: 1)
+            session.food.append(pizza)
+            modelContext.insert(pizza)
+        }
+    }
+    
+    private func addWater() {
+        withAnimation {
+            let water = WaterEntry(volumeOz: 8.0)
+            session.water.append(water)
+            modelContext.insert(water)
+        }
+    }
+    
     private func addLocation() {
         // Manual location logging
         guard let location = locationTracker.currentLocation else {
@@ -348,6 +384,14 @@ struct ActiveSessionView: View {
             items.append(TimelineItem(id: other.id.uuidString, timestamp: other.timestamp, type: .other(other)))
         }
         
+        for food in session.food {
+            items.append(TimelineItem(id: food.id.uuidString, timestamp: food.timestamp, type: .food(food)))
+        }
+        
+        for water in session.water {
+            items.append(TimelineItem(id: water.id.uuidString, timestamp: water.timestamp, type: .water(water)))
+        }
+        
         return items.sorted { $0.timestamp > $1.timestamp }
     }
 }
@@ -362,6 +406,8 @@ enum TimelineItemType {
     case drink(DrinkEntry)
     case location(LocationStop)
     case other(OtherEntry)
+    case food(FoodEntry)
+    case water(WaterEntry)
 }
 
 struct TimelineRow: View {
@@ -377,26 +423,9 @@ struct TimelineRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.headline)
-                
-                HStack(spacing: 4) {
-                    Text(item.timestamp, style: .time)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    
-                    // Show location for drinks
-                    if case .drink(let drink) = item.type, let location = drink.locationName {
-                        Text("•")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 2) {
-                            Image(systemName: "location.fill")
-                                .font(.system(size: 8))
-                            Text(location)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                    }
-                }
+                Text(item.timestamp, style: .time)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             
             Spacer()
@@ -415,6 +444,8 @@ struct TimelineRow: View {
         case .drink: return "wineglass"
         case .location: return "location.fill"
         case .other: return "smoke"
+        case .food: return "fork.knife"
+        case .water: return "drop.fill"
         }
     }
     
@@ -423,6 +454,8 @@ struct TimelineRow: View {
         case .drink: return .blue
         case .location: return .green
         case .other: return .orange
+        case .food: return Color(.systemOrange)
+        case .water: return Color(.systemCyan)
         }
     }
     
@@ -434,6 +467,10 @@ struct TimelineRow: View {
             return location.locationName ?? "Unknown Location"
         case .other(let other):
             return other.type
+        case .food(let food):
+            return "\(food.quantity) slice\(food.quantity > 1 ? "s" : "") of \(food.foodType)"
+        case .water(let water):
+            return "\(Int(water.volumeOz))oz Water"
         }
     }
 }
@@ -467,15 +504,8 @@ struct AddDrinkView: View {
     @State private var name = ""
     @State private var alcoholContent = 5.0
     @State private var volumeOz = 12.0
-    @State private var locationName = "Fetching location..."
-    @State private var currentLat: Double?
-    @State private var currentLon: Double?
-    @State private var isLoadingLocation = true
     
     let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
-    
-    // Pass the location tracker from parent
-    var locationTracker: LocationTracker?
     
     var body: some View {
         NavigationStack {
@@ -514,25 +544,6 @@ struct AddDrinkView: View {
                     }
                 }
                 
-                Section("Location") {
-                    HStack {
-                        if isLoadingLocation {
-                            ProgressView()
-                                .padding(.trailing, 8)
-                        } else {
-                            Image(systemName: "location.fill")
-                                .foregroundStyle(.green)
-                                .padding(.trailing, 4)
-                        }
-                        
-                        TextField("Location", text: $locationName)
-                    }
-                    
-                    Text("Auto-detected from Maps. Edit if incorrect.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                
                 Section {
                     let drink = DrinkEntry(drinkType: drinkType, alcoholContent: alcoholContent, volumeOz: volumeOz)
                     Text("Standard drinks: \(String(format: "%.2f", drink.standardDrinks))")
@@ -551,29 +562,6 @@ struct AddDrinkView: View {
                         dismiss()
                     }
                 }
-            }
-            .onAppear {
-                fetchCurrentLocation()
-            }
-        }
-    }
-    
-    private func fetchCurrentLocation() {
-        guard let tracker = locationTracker,
-              let location = tracker.currentLocation else {
-            locationName = "Unknown Location"
-            isLoadingLocation = false
-            return
-        }
-        
-        currentLat = location.coordinate.latitude
-        currentLon = location.coordinate.longitude
-        
-        Task {
-            let venueName = await tracker.getBestVenueName(for: location)
-            await MainActor.run {
-                locationName = venueName
-                isLoadingLocation = false
             }
         }
     }
@@ -605,10 +593,7 @@ struct AddDrinkView: View {
             drinkType: drinkType,
             name: name.isEmpty ? nil : name,
             alcoholContent: alcoholContent,
-            volumeOz: volumeOz,
-            locationName: locationName.isEmpty ? nil : locationName,
-            latitude: currentLat,
-            longitude: currentLon
+            volumeOz: volumeOz
         )
         session.drinks.append(drink)
         modelContext.insert(drink)
@@ -725,24 +710,9 @@ struct SessionDetailView: View {
                         Text("\(String(format: "%.1f", drink.alcoholContent))% ABV • \(String(format: "%.1f", drink.volumeOz)) oz")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        HStack(spacing: 4) {
-                            Text(drink.timestamp, style: .time)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            
-                            if let location = drink.locationName {
-                                Text("•")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 2) {
-                                    Image(systemName: "location.fill")
-                                        .font(.system(size: 8))
-                                    Text(location)
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                            }
-                        }
+                        Text(drink.timestamp, style: .time)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
