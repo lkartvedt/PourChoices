@@ -35,9 +35,11 @@ struct PourChoicesApp: App {
         WindowGroup {
             if showSplash {
                 SplashScreenView(showSplash: $showSplash)
+                    .preferredColorScheme(.dark)
             } else {
                 ContentView()
                     .modelContainer(sharedModelContainer)
+                    .preferredColorScheme(.dark)
             }
         }
     }

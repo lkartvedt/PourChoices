@@ -83,8 +83,15 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("Pour Choices")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Image("TextLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 30)
+                }
+                
                 if activeSession == nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         NavigationLink {
