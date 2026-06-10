@@ -161,10 +161,29 @@ final class WaterEntry {
 final class UserProfile {
     var weight: Double // in lbs
     var sex: String // "Male" or "Female" (affects BAC calculation)
+    var birthdate: Date? // User's birthdate for age verification
+    var hasCompletedAgeVerification: Bool // Track if they've passed age verification
+    var hasCompletedOnboarding: Bool // Track if they've gone through initial setup
     
-    init(weight: Double = 150, sex: String = "Male") {
+    init(weight: Double = 150, sex: String = "Male", birthdate: Date? = nil, hasCompletedAgeVerification: Bool = false, hasCompletedOnboarding: Bool = false) {
         self.weight = weight
         self.sex = sex
+        self.birthdate = birthdate
+        self.hasCompletedAgeVerification = hasCompletedAgeVerification
+        self.hasCompletedOnboarding = hasCompletedOnboarding
+    }
+    
+    // Computed property for age
+    var age: Int {
+        guard let birthdate = birthdate else { return 21 }
+        let calendar = Calendar.current
+        let ageComponents = calendar.dateComponents([.year], from: birthdate, to: Date())
+        return ageComponents.year ?? 21
+    }
+    
+    // Check if user is 21 or older
+    var isOver21: Bool {
+        age >= 21
     }
 }
 

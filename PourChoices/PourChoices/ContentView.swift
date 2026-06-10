@@ -15,6 +15,8 @@ struct ContentView: View {
     @Query private var userProfiles: [UserProfile]
     
     @State private var showingNewSession = false
+    @State private var showingAgeVerification = false
+    @State private var showingOnboarding = false
     
     var activeSession: DrinkingSession? {
         sessions.first { $0.isActive }
@@ -91,6 +93,22 @@ struct ContentView: View {
                             Image(systemName: "person.circle")
                         }
                     }
+                }
+            }
+            .sheet(isPresented: $showingAgeVerification) {
+                AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
+                    .interactiveDismissDisabled()
+            }
+            .sheet(isPresented: $showingOnboarding) {
+                OnboardingView(profile: userProfile)
+                    .interactiveDismissDisabled()
+            }
+            .onAppear {
+                // Check if user needs age verification first
+                if !userProfile.hasCompletedAgeVerification {
+                    showingAgeVerification = true
+                } else if !userProfile.hasCompletedOnboarding {
+                    showingOnboarding = true
                 }
             }
         }
@@ -760,6 +778,20 @@ struct ProfileSettingsView: View {
     var body: some View {
         Form {
             Section("Your Info") {
+                DatePicker("Birthdate", 
+                          selection: Binding(
+                            get: { profile.birthdate ?? Date() },
+                            set: { profile.birthdate = $0 }
+                          ),
+                          displayedComponents: .date)
+                
+                HStack {
+                    Text("Age")
+                    Spacer()
+                    Text("\(profile.age)")
+                        .foregroundStyle(.secondary)
+                }
+                
                 HStack {
                     Text("Weight (lbs)")
                     Spacer()
@@ -793,6 +825,225 @@ struct ProfileSettingsView: View {
         }
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Age Verification View
+struct AgeVerificationView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var profile: UserProfile
+    @Binding var showingOnboarding: Bool
+    
+    @State private var birthdate = Calendar.current.date(byAdding: .year, value: -21, to: Date()) ?? Date()
+    @State private var showUnder21Alert = false
+    
+    var calculatedAge: Int {
+        let calendar = Calendar.current
+        let ageComponents = calendar.dateComponents([.year], from: birthdate, to: Date())
+        return ageComponents.year ?? 0
+    }
+    
+    var isOver21: Bool {
+        calculatedAge >= 21
+    }
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Spacer()
+                
+                // Header
+                VStack(spacing: 20) {
+                    Image(systemName: "checkmark.shield.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(.blue)
+                    
+                    Text("Age Verification")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    
+                    Text("You must be 21 or older to use this app")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 40)
+                
+                Spacer()
+                
+                // Birthdate picker
+                VStack(spacing: 16) {
+                    Text("Enter your birthdate")
+                        .font(.headline)
+                    
+                    DatePicker("Birthdate", 
+                              selection: $birthdate,
+                              in: ...Date(),
+                              displayedComponents: .date)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .padding(.horizontal)
+                }
+                .padding(.vertical, 30)
+                .background(Color(.systemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 20)
+                
+                Spacer()
+                
+                // Continue button
+                Button(action: verifyAge) {
+                    Text("Continue")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isOver21 ? Color.blue : Color.gray, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+                .disabled(!isOver21)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .alert("Age Requirement Not Met", isPresented: $showUnder21Alert) {
+                Button("OK") { }
+            } message: {
+                Text("You must be 21 years or older to use Pour Choices. This app is intended for legal drinking age users only.")
+            }
+        }
+    }
+    
+    private func verifyAge() {
+        guard isOver21 else {
+            showUnder21Alert = true
+            return
+        }
+        
+        // Save birthdate and mark verification as complete
+        profile.birthdate = birthdate
+        profile.hasCompletedAgeVerification = true
+        
+        // Dismiss this sheet first, then show onboarding
+        dismiss()
+        
+        // Delay to allow sheet dismissal to complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showingOnboarding = true
+        }
+    }
+}
+
+// MARK: - Onboarding View
+struct OnboardingView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var profile: UserProfile
+    
+    @State private var weight: Double = 150
+    @State private var sex: String = "Male"
+    @FocusState private var isWeightFocused: Bool
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Header
+                VStack(spacing: 16) {
+                    Image(systemName: "person.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(.blue)
+                    
+                    Text("Welcome to Pour Choices")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Help us provide accurate BAC estimates")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, 40)
+                .padding(.bottom, 30)
+                
+                // Form
+                Form {
+                    Section {
+                        HStack {
+                            Text("Age")
+                            Spacer()
+                            Text("\(profile.age)")
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        HStack {
+                            Text("Weight (lbs)")
+                            Spacer()
+                            TextField("Weight", value: $weight, format: .number)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 100)
+                                .focused($isWeightFocused)
+                        }
+                        
+                        Picker("Sex", selection: $sex) {
+                            Text("Male").tag("Male")
+                            Text("Female").tag("Female")
+                        }
+                    } header: {
+                        Text("Your Information")
+                    } footer: {
+                        Text("This information is used to calculate your estimated BAC. You can update it anytime in your profile.")
+                    }
+                }
+                
+                Spacer()
+                
+                // Buttons
+                VStack(spacing: 12) {
+                    Button(action: saveAndContinue) {
+                        Text("Continue")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    
+                    Button(action: skipOnboarding) {
+                        Text("Skip for now")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Text("Skipping will make BAC calculations less accurate. You can update this info anytime in your profile.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        isWeightFocused = false
+                    }
+                }
+            }
+        }
+    }
+    
+    private func saveAndContinue() {
+        isWeightFocused = false // Dismiss keyboard first
+        profile.weight = weight
+        profile.sex = sex
+        profile.hasCompletedOnboarding = true
+        dismiss()
+    }
+    
+    private func skipOnboarding() {
+        isWeightFocused = false // Dismiss keyboard first
+        profile.hasCompletedOnboarding = true
+        dismiss()
     }
 }
 
