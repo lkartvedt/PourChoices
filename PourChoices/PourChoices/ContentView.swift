@@ -922,6 +922,12 @@ struct StatBox: View {
 }
 
 // MARK: - Add Drink View
+struct DrinkSubtype {
+    let name: String
+    let abv: Double
+    let oz: Double
+}
+
 struct AddDrinkView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -932,6 +938,8 @@ struct AddDrinkView: View {
     @State private var name = ""
     @State private var alcoholContent = 5.0
     @State private var volumeOz = 12.0
+    @State private var selectedSubtype: String = "None"
+    @State private var isDouble = false
     
     @FocusState private var focusedField: AddDrinkField?
     
@@ -942,6 +950,58 @@ struct AddDrinkView: View {
     }
     
     let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
+    
+    static let subtypes: [String: [DrinkSubtype]] = [
+        "Beer": [
+            DrinkSubtype(name: "Light Beer", abv: 3.5, oz: 12),
+            DrinkSubtype(name: "Seltzer", abv: 5.0, oz: 12),
+            DrinkSubtype(name: "IPA", abv: 6.5, oz: 12),
+            DrinkSubtype(name: "Craft / Stout", abv: 8.0, oz: 12),
+        ],
+        "Wine": [
+            DrinkSubtype(name: "White", abv: 12.0, oz: 5),
+            DrinkSubtype(name: "Rosé", abv: 12.0, oz: 5),
+            DrinkSubtype(name: "Red", abv: 14.0, oz: 5),
+            DrinkSubtype(name: "Champagne", abv: 12.0, oz: 5),
+        ],
+        "Shot": [
+            DrinkSubtype(name: "Vodka / Gin / Rum", abv: 40.0, oz: 1.5),
+            DrinkSubtype(name: "Tequila", abv: 40.0, oz: 1.5),
+            DrinkSubtype(name: "Fireball", abv: 33.0, oz: 1.5),
+            DrinkSubtype(name: "Jäger", abv: 35.0, oz: 1.5),
+            DrinkSubtype(name: "Liqueur", abv: 20.0, oz: 1.5),
+            DrinkSubtype(name: "Overproof", abv: 75.0, oz: 1.5),
+        ],
+        "Cocktail": [
+            DrinkSubtype(name: "Martini", abv: 28.0, oz: 4),
+            DrinkSubtype(name: "Margarita", abv: 15.0, oz: 4),
+            DrinkSubtype(name: "Old Fashioned", abv: 32.0, oz: 4),
+            DrinkSubtype(name: "Spritz / Aperol", abv: 8.0, oz: 5),
+            DrinkSubtype(name: "Sour", abv: 15.0, oz: 4),
+        ],
+        "Mixed Drink": [
+            DrinkSubtype(name: "Pina Colada", abv: 10.0, oz: 8),
+            DrinkSubtype(name: "Long Island", abv: 22.0, oz: 8),
+            DrinkSubtype(name: "Rum & Coke", abv: 10.0, oz: 8),
+            DrinkSubtype(name: "Vodka Soda", abv: 8.0, oz: 8),
+            DrinkSubtype(name: "Jungle Juice", abv: 12.0, oz: 8),
+        ],
+        "Other": [
+            DrinkSubtype(name: "Frosé", abv: 10.0, oz: 8),
+            DrinkSubtype(name: "Hard Cider", abv: 5.0, oz: 12),
+            DrinkSubtype(name: "Hard Kombucha", abv: 6.0, oz: 12),
+            DrinkSubtype(name: "Sake", abv: 15.0, oz: 6),
+            DrinkSubtype(name: "Mead", abv: 12.0, oz: 5),
+        ],
+    ]
+    
+    var currentSubtypes: [DrinkSubtype] {
+        AddDrinkView.subtypes[drinkType] ?? []
+    }
+    
+    var supportsDouble: Bool {
+        ["Shot", "Cocktail", "Mixed Drink"].contains(drinkType)
+    }
     
     // Maps display name to asset name
     func assetName(for type: String) -> String {
@@ -960,6 +1020,8 @@ struct AddDrinkView: View {
                         ForEach(drinkTypes, id: \.self) { type in
                             Button(action: {
                                 drinkType = type
+                                selectedSubtype = "None"
+                                isDouble = false
                                 updateDefaults(for: type)
                             }) {
                                 VStack(spacing: 8) {
@@ -988,6 +1050,79 @@ struct AddDrinkView: View {
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
+                    
+                    // Subtype picker
+                    if !currentSubtypes.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Style")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                                .padding(.bottom, 6)
+                            
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 10) {
+                                    // "None" chip
+                                    Button(action: {
+                                        selectedSubtype = "None"
+                                        updateDefaults(for: drinkType)
+                                        isDouble = false
+                                    }) {
+                                        Text("None")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .foregroundStyle(selectedSubtype == "None" ? Color.black : Color.primary)
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 8)
+                                            .background(
+                                                Capsule().fill(selectedSubtype == "None" ? Color.accent : Color(.secondarySystemGroupedBackground))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                    
+                                    ForEach(currentSubtypes, id: \.name) { subtype in
+                                        Button(action: {
+                                            selectedSubtype = subtype.name
+                                            alcoholContent = subtype.abv
+                                            volumeOz = subtype.oz
+                                            isDouble = false
+                                        }) {
+                                            Text(subtype.name)
+                                                .font(.subheadline)
+                                                .fontWeight(.medium)
+                                                .foregroundStyle(selectedSubtype == subtype.name ? Color.black : Color.primary)
+                                                .padding(.horizontal, 16)
+                                                .padding(.vertical, 8)
+                                                .background(
+                                                    Capsule().fill(selectedSubtype == subtype.name ? Color.accent : Color(.secondarySystemGroupedBackground))
+                                                )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                            
+                            // Make it a double
+                            if supportsDouble {
+                                Button(action: {
+                                    isDouble.toggle()
+                                    volumeOz = isDouble ? volumeOz * 2 : volumeOz / 2
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: isDouble ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(isDouble ? Color.accent : Color.secondary)
+                                        Text("Make it a double")
+                                            .font(.subheadline)
+                                            .foregroundStyle(isDouble ? Color.primary : Color.secondary)
+                                    }
+                                    .padding(.horizontal)
+                                    .padding(.top, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                     
                     // Details section
                     VStack(alignment: .leading, spacing: 0) {
@@ -1090,10 +1225,11 @@ struct AddDrinkView: View {
             alcoholContent = 20.0
             volumeOz = 4.0
         case "Mixed Drink":
-            alcoholContent = 15.0
+            alcoholContent = 10.0
             volumeOz = 8.0
         default:
-            break
+            alcoholContent = 5.0
+            volumeOz = 12.0
         }
     }
     
