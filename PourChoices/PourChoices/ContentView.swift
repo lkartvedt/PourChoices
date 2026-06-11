@@ -1297,9 +1297,7 @@ struct AddOtherView: View {
     let nicotineTypes: [(name: String, defaultMg: Double)] = [
         ("Zyn - 3mg", 3.0),
         ("Zyn - 6mg", 6.0),
-        ("Vape - Puff", 0.2),
-        ("Vape - Session", 3.0),
-        ("Vape - Full cart", 20.0),
+        ("Vape", 3.0),
         ("Cigarette", 2.0),
         ("Cigar", 10.0),
         ("Nicotine gum", 3.0),
