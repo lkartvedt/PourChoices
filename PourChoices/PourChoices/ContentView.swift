@@ -277,9 +277,6 @@ struct ActiveSessionView: View {
         VStack(spacing: 0) {
             // Big BAC Display
             VStack {
-//                Text("Current BAC")
-//                    .font(.subheadline)
-//                    .foregroundStyle(.secondary)
                 
                 Text(String(format: "%.3f%%", currentBAC))
                     .font(.system(size: 60, weight: .bold, design: .rounded))
@@ -1151,6 +1148,40 @@ struct PastSessionRow: View {
         session.peakBAC
     }
     
+    var uniqueLocationsCount: Int {
+        var uniqueLocationNames = Set<String>()
+        
+        // Add explicit location stops
+        for location in session.locations {
+            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from drinks
+        for drink in session.drinks {
+            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from food
+        for food in session.food {
+            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from water
+        for water in session.water {
+            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        return uniqueLocationNames.count
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(session.startTime, style: .date)
@@ -1159,7 +1190,7 @@ struct PastSessionRow: View {
             HStack {
                 Label("\(session.drinks.count) drinks", systemImage: "wineglass")
                 Text("•")
-                Label("\(session.locations.count) stops", systemImage: "location")
+                Label("\(uniqueLocationsCount) stops", systemImage: "location")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -1542,7 +1573,7 @@ struct ProfileSettingsView: View {
                                 profile.heightInches = Double(newFeet * 12 + heightInches)
                             }
                         )) {
-                            ForEach(4...7, id: \.self) { feet in
+                            ForEach(3...8, id: \.self) { feet in
                                 Text("\(feet)'").tag(feet)
                             }
                         }
