@@ -215,6 +215,7 @@ struct ActiveSessionView: View {
     @State private var locationTracker = LocationTracker()
     @State private var showLocationPermissionAlert = false
     @State private var showLocationDeniedAlert = false
+    @State private var showingEndSessionConfirmation = false
     
     var peakBACAndTime: (Double, Double) {
         let (bac, time) = BACCalculator.estimateBAC(
@@ -398,7 +399,7 @@ struct ActiveSessionView: View {
             .listStyle(.plain)
             
             // End session button
-            Button(action: endSession) {
+            Button(action: { showingEndSessionConfirmation = true }) {
                 Text("End Session")
                     .font(.headline)
                     .foregroundStyle(.white)
@@ -406,7 +407,6 @@ struct ActiveSessionView: View {
                     .padding()
                     .background(Color.red, in: Capsule())
             }
-            .padding()
         }
         .sheet(isPresented: $showingAddDrink) {
             AddDrinkView(session: session, locationTracker: locationTracker)
@@ -423,6 +423,14 @@ struct ActiveSessionView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Enable location access to automatically track bar hops. Go to Settings > Privacy > Location Services.")
+        }
+        .alert("End Session", isPresented: $showingEndSessionConfirmation) {
+            Button("End Session", role: .destructive) {
+                endSession()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to end this session?")
         }
         .alert("Location Access Denied", isPresented: $showLocationDeniedAlert) {
             Button("Settings") {
@@ -442,12 +450,12 @@ struct ActiveSessionView: View {
         }
         .onChange(of: locationTracker.authorizationStatus) { oldValue, newValue in
             // Update UI when authorization status changes
-            print("📍 Authorization changed from \(oldValue.rawValue) to \(newValue.rawValue)")
+            print("Authorization changed from \(oldValue.rawValue) to \(newValue.rawValue)")
             
             // If permission was just granted, start tracking
             if (oldValue == .notDetermined || oldValue == .denied) &&
                (newValue == .authorizedWhenInUse || newValue == .authorizedAlways) {
-                print("✅ Permission granted, tracking will start automatically")
+                print("Permission granted, start tracking automatically")
             }
         }
     }
@@ -482,7 +490,7 @@ struct ActiveSessionView: View {
                 // Check if we already have a location for this session
                 await MainActor.run {
                     guard session.locations.isEmpty else {
-                        print("✅ Session already has locations")
+                        print("Session already has locations")
                         return
                     }
                 }
@@ -497,7 +505,7 @@ struct ActiveSessionView: View {
                     )
                     session.locations.append(stop)
                     modelContext.insert(stop)
-                    print("✅ Logged initial location after permission: \(venueName)")
+                    print("Logged initial location after permission: \(venueName)")
                 }
             }
         }
@@ -526,7 +534,7 @@ struct ActiveSessionView: View {
                 
                 // Check if we already have a location for this session
                 guard session.locations.isEmpty else {
-                    print("✅ Session already has locations")
+                    print("Session already has locations")
                     return
                 }
                 
@@ -540,7 +548,7 @@ struct ActiveSessionView: View {
                     )
                     session.locations.append(stop)
                     modelContext.insert(stop)
-                    print("✅ Logged initial location: \(venueName)")
+                    print("Logged initial location: \(venueName)")
                 }
             }
             

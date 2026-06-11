@@ -137,7 +137,7 @@ class LocationTracker: NSObject {
             let response = try await search.start()
             
             // DEBUG: Print all results
-            print("🔍 MapKit Search found \(response.mapItems.count) venues:")
+            print("MapKit Search found \(response.mapItems.count) venues:")
             for (index, item) in response.mapItems.prefix(10).enumerated() {
                 let dist = item.placemark.location?.distance(from: location) ?? 0
                 print("  \(index + 1). \(item.name ?? "Unknown") - \(Int(dist))m away")
@@ -159,10 +159,10 @@ class LocationTracker: NSObject {
     
     // Get best venue name (tries nearby search first, falls back to geocoding)
     func getBestVenueName(for location: CLLocation) async -> String {
-        print("📍 Getting venue name for location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
+        print("Getting venue name for location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
         
         // First try to find nearby venues with a generous radius
-        print("🔎 Searching for venues within 200m...")
+        print("Searching for venues within 200m...")
         let venues = await searchNearbyVenues(at: location, radius: 200)
         
         // Take the absolute closest venue if we found any
@@ -183,18 +183,18 @@ class LocationTracker: NSObject {
             print("❌ No venues found in MapKit search")
         }
         
-        print("🔍 No nearby venues found, trying reverse geocoding...")
+        print("No nearby venues found, trying reverse geocoding...")
         
         // Try reverse geocoding for POI/areas of interest
         if let placeName = await getPlaceName(for: location) {
-            print("✅ Geocoding returned: \(placeName)")
+            print("Geocoding returned: \(placeName)")
             
             // Check if it's likely a venue name (not just an address)
             let hasLotsOfNumbers = placeName.filter({ $0.isNumber }).count > 2
             if !hasLotsOfNumbers {
                 return placeName
             } else {
-                print("⚠️ Geocoding result looks like an address: \(placeName)")
+                print("Geocoding result looks like an address: \(placeName)")
             }
         }
         
