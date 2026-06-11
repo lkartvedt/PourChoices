@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var showingNewSession = false
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
+    @State private var navigationPath = NavigationPath()
     
     var activeSession: DrinkingSession? {
         sessions.first { $0.isActive }
@@ -34,17 +35,62 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             VStack(spacing: 0) {
                 if let session = activeSession {
-                    // Active session view
-                    ActiveSessionView(session: session, userProfile: userProfile)
-                } else {
-                    // No active session
+                    // Show a card to navigate into the active session
                     VStack(spacing: 20) {
-                        Image(systemName: "wineglass")
-                            .font(.system(size: 80))
+                        Image("Cheers")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 140, height: 140)
+                            .padding(.top, 30)
+                        
+                        Text("Active Session")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                        
+                        Text("You're currently tracking")
                             .foregroundStyle(.secondary)
+                        
+                        NavigationLink(value: session) {
+                            Label("View Session", systemImage: "arrow.right.circle.fill")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .padding(.horizontal, 40)
+                        .padding(.top, 20)
+                    }
+                    .padding(.bottom, 30)
+                    
+                    // Past sessions list
+                    if !sessions.isEmpty {
+                        List {
+                            Section("Past Parties") {
+                                ForEach(sessions.filter { !$0.isActive }) { session in
+                                    NavigationLink {
+                                        SessionDetailView(session: session, userProfile: userProfile)
+                                    } label: {
+                                        PastSessionRow(session: session, userProfile: userProfile)
+                                    }
+                                }
+                                .onDelete(perform: deleteSessions)
+                            }
+                        }
+                    } else {
+                        Spacer()
+                    }
+                } else {
+                    // No active session - fixed header
+                    VStack(spacing: 10) {
+                        Image("Cheers")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 180, height: 180)
+                            .padding(.top, 30)
                         
                         Text("No Active Session")
                             .font(.title2)
@@ -64,12 +110,12 @@ struct ContentView: View {
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
                     }
-                    .frame(maxHeight: .infinity)
+                    .padding(.bottom, 30)
                     
                     // Past sessions list
                     if !sessions.isEmpty {
                         List {
-                            Section("Past Sessions") {
+                            Section("Past Parties") {
                                 ForEach(sessions.filter { !$0.isActive }) { session in
                                     NavigationLink {
                                         SessionDetailView(session: session, userProfile: userProfile)
@@ -80,8 +126,13 @@ struct ContentView: View {
                                 .onDelete(perform: deleteSessions)
                             }
                         }
+                    } else {
+                        Spacer()
                     }
                 }
+            }
+            .navigationDestination(for: DrinkingSession.self) { session in
+                ActiveSessionView(session: session, userProfile: userProfile)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -92,13 +143,11 @@ struct ContentView: View {
                         .frame(height: 30)
                 }
                 
-                if activeSession == nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink {
-                            ProfileSettingsView(profile: userProfile)
-                        } label: {
-                            Image(systemName: "person.circle")
-                        }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ProfileSettingsView(profile: userProfile)
+                    } label: {
+                        Image(systemName: "person.circle")
                     }
                 }
             }
@@ -125,6 +174,8 @@ struct ContentView: View {
         withAnimation {
             let session = DrinkingSession()
             modelContext.insert(session)
+            // Navigate into the new session
+            navigationPath.append(session)
         }
     }
     
@@ -143,6 +194,7 @@ struct ActiveSessionView: View {
     @Bindable var session: DrinkingSession
     let userProfile: UserProfile
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     
     @State private var showingAddDrink = false
     @State private var showingAddOther = false
@@ -335,10 +387,28 @@ struct ActiveSessionView: View {
     
     private func bacStatus(_ bac: Double) -> String {
         switch bac {
-        case 0..<0.03: return "Sober vibes"
-        case 0.03..<0.08: return "Feeling it"
-        case 0.08..<0.15: return "Drunk (don't drive)"
-        default: return "Blackout territory"
+        case 0: return "Designated driver"
+        case 0..<0.01: return "Too sober"
+        case 0.01..<0.02: return "This is just juice"
+        case 0.02..<0.03: return "Just warming up"
+        case 0.03..<0.04: return "Found my personality"
+        case 0.04..<0.05: return "Vibes: immaculate"
+        case 0.05..<0.06: return "Feeling myself"
+        case 0.06..<0.07: return "Liver is activated"
+        case 0.07..<0.08: return "I love this song (every song)"
+        case 0.08..<0.09: return "Legally a problem"
+        case 0.09..<0.10: return "When we drink, we do it right, gettin' slizzered"
+        case 0.10..<0.11: return "Texting exes"
+        case 0.11..<0.12: return "Everyone's best friend"
+        case 0.12..<0.13: return "Said 'I love you' to the bartender"
+        case 0.13..<0.14: return "Let's order Taco Bell"
+        case 0.14..<0.15: return "Where are my shoes?!"
+        case 0.15..<0.16: return "Where are your keys? Wallet?? Phone???"
+        case 0.16..<0.17: return "Wasted"
+        case 0.17..<0.20: return "Tomorrow is going to HURT"
+        case 0.20..<0.3: return "Ghost of decisions past"
+        case 0.3..<1.0: return "Go the the fucking hospital"
+        default: return "Do not operate heavy machinery"
         }
     }
     
@@ -392,6 +462,8 @@ struct ActiveSessionView: View {
         withAnimation {
             session.endTime = Date()
         }
+        // Navigate back to home
+        dismiss()
     }
     
     private func combinedTimeline() -> [TimelineItem] {
@@ -1055,6 +1127,19 @@ struct OnboardingView: View {
 }
 
 #Preview {
-    ContentView()
-        .modelContainer(for: DrinkingSession.self, inMemory: true)
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: DrinkingSession.self, UserProfile.self, configurations: config)
+    
+    // Create a pre-configured profile
+    let profile = UserProfile(
+        weight: 170,
+        sex: "Male",
+        birthdate: Calendar.current.date(byAdding: .year, value: -25, to: Date()),
+        hasCompletedAgeVerification: true,
+        hasCompletedOnboarding: true
+    )
+    container.mainContext.insert(profile)
+    
+    return ContentView()
+        .modelContainer(container)
 }
