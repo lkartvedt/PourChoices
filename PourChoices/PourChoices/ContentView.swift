@@ -1530,7 +1530,7 @@ struct PastSessionRow: View {
             HStack {
                 Label("\(session.drinks.count) drinks", systemImage: "wineglass")
                 Text("•")
-                Label("\(uniqueLocationsCount) stops", systemImage: "location")
+                Label("\(uniqueLocationsCount) \(uniqueLocationsCount == 1 ? "stop" : "stops")", systemImage: "location")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -1569,6 +1569,31 @@ struct SessionDetailView: View {
     
     var sortedLocations: [LocationStop] {
         session.locations.sorted(by: { $0.arrivalTime < $1.arrivalTime })
+    }
+    
+    var uniqueLocationsCount: Int {
+        var uniqueLocationNames = Set<String>()
+        for location in session.locations {
+            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        for drink in session.drinks {
+            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        for food in session.food {
+            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        for water in session.water {
+            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        return uniqueLocationNames.count
     }
     
     var body: some View {
@@ -1687,7 +1712,7 @@ struct SessionDetailView: View {
                     HStack {
                         Text("Locations")
                         Spacer()
-                        Text("\(session.locations.count)")
+                        Text("\(uniqueLocationsCount)")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1755,7 +1780,7 @@ struct SessionDetailView: View {
     @ViewBuilder private var locationsSection: some View {
         if !sortedLocations.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Locations (\(session.locations.count))")
+                Text("Locations (\(uniqueLocationsCount))")
                     .font(.headline)
                     .padding(.horizontal)
                 ForEach(sortedLocations) { location in
