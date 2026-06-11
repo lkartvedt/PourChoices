@@ -59,7 +59,7 @@ struct ContentView: View {
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.green, in: RoundedRectangle(cornerRadius: 12))
+                                .background(Color.green, in: Capsule())
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
@@ -102,10 +102,10 @@ struct ContentView: View {
                         Button(action: startNewSession) {
                             Label("Start Session", systemImage: "play.fill")
                                 .font(.headline)
-                                .foregroundStyle(.white)
+                                .foregroundStyle(.black)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
+                                .background(Color.accent, in: Capsule())
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
@@ -257,45 +257,63 @@ struct ActiveSessionView: View {
                 Button(action: { showingAddDrink = true }) {
                     Label("Log Drink", systemImage: "plus.circle.fill")
                         .font(.headline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.accent, in: Capsule())
                 }
                 
                 HStack(spacing: 12) {
                     Button(action: addPizza) {
-                        Label("Pizza", systemImage: "🍕")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color(.systemOrange).opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
+                        Label {
+                            Text("Pizza")
+                        } icon: {
+                            Image("PizzaDark")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.darkGray), in: Capsule())
                     }
                     
                     Button(action: addWater) {
-                        Label("Water", systemImage: "💧")
+                        Label("Water", systemImage: "drop")
                             .font(.subheadline)
+                            .foregroundStyle(Color.white)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(.systemBlue).opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
+                            .background(Color(.darkGray), in: Capsule())
                     }
                 }
                 
                 HStack(spacing: 12) {
                     Button(action: { showingAddOther = true }) {
-                        Label("Zyn/Cig", systemImage: "smoke")
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 10))
+                        Label {
+                            Text("Nicotine")
+                        } icon: {
+                            Image("CigDark")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.darkGray), in: Capsule())
                     }
                     
                     Button(action: addLocation) {
                         Label("Log Location", systemImage: "location")
                             .font(.subheadline)
+                            .foregroundStyle(Color.white)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 10))
+                            .background(Color(.darkGray), in: Capsule())
                     }
                 }
             }
@@ -318,7 +336,7 @@ struct ActiveSessionView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(Color.red, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.red, in: Capsule())
             }
             .padding()
         }
@@ -935,7 +953,7 @@ struct AgeVerificationView: View {
                 VStack(spacing: 20) {
                     Image(systemName: "checkmark.shield.fill")
                         .font(.system(size: 80))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.accent)
                     
                     Text("Age Verification")
                         .font(.largeTitle)
@@ -973,10 +991,10 @@ struct AgeVerificationView: View {
                 Button(action: verifyAge) {
                     Text("Continue")
                         .font(.headline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(isOver21 ? Color.blue : Color.gray, in: RoundedRectangle(cornerRadius: 12))
+                        .background(isOver21 ? Color.accent : Color.gray, in: Capsule())
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
@@ -1018,101 +1036,128 @@ struct OnboardingView: View {
     
     @State private var weight: Double = 150
     @State private var sex: String = "Male"
-    @FocusState private var isWeightFocused: Bool
+    @FocusState private var focusedField: OnboardingField?
+    
+    enum OnboardingField {
+        case weight
+    }
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Header
-                VStack(spacing: 16) {
-                    Image(systemName: "person.circle.fill")
-                        .font(.system(size: 80))
-                        .foregroundStyle(.blue)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    VStack(spacing: 16) {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 80))
+                            .foregroundStyle(.accent)
+                        
+                        Text("Welcome to Pour Choices")
+                            .font(.title)
+                            .fontWeight(.bold)
+                        
+                        Text("Help us provide accurate BAC estimates")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 40)
+                    .padding(.bottom, 30)
                     
-                    Text("Welcome to Pour Choices")
-                        .font(.title)
-                        .fontWeight(.bold)
+                    // Form
+                    VStack(spacing: 0) {
+                        GroupBox {
+                            VStack(spacing: 16) {
+                                HStack {
+                                    Text("Age")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Text("\(profile.age)")
+                                        .foregroundStyle(.secondary)
+                                }
+                                
+                                Divider()
+                                
+                                HStack {
+                                    Text("Weight (lbs)")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    TextField("150", value: $weight, format: .number)
+                                        .keyboardType(.decimalPad)
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(width: 100)
+                                        .focused($focusedField, equals: .weight)
+                                        .submitLabel(.done)
+                                        .onSubmit {
+                                            focusedField = nil
+                                        }
+                                }
+                                
+                                Divider()
+                                
+                                HStack {
+                                    Text("Sex")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    Picker("Sex", selection: $sex) {
+                                        Text("Male").tag("Male")
+                                        Text("Female").tag("Female")
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(width: 200)
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .padding(.horizontal)
+                        
+                        Text("This information is used to calculate your estimated BAC. You can update it anytime in your profile.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                            .padding(.top, 8)
+                    }
                     
-                    Text("Help us provide accurate BAC estimates")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 40)
-                .padding(.bottom, 30)
-                
-                // Form
-                Form {
-                    Section {
-                        HStack {
-                            Text("Age")
-                            Spacer()
-                            Text("\(profile.age)")
+                    Spacer(minLength: 40)
+                    
+                    // Buttons
+                    VStack(spacing: 12) {
+                        Button(action: saveAndContinue) {
+                            Text("Continue")
+                                .font(.headline)
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.accent, in: Capsule())
+                        }
+                        
+                        Button(action: skipOnboarding) {
+                            Text("Skip for now")
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                         
-                        HStack {
-                            Text("Weight (lbs)")
-                            Spacer()
-                            TextField("Weight", value: $weight, format: .number)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 100)
-                                .focused($isWeightFocused)
-                        }
-                        
-                        Picker("Sex", selection: $sex) {
-                            Text("Male").tag("Male")
-                            Text("Female").tag("Female")
-                        }
-                    } header: {
-                        Text("Your Information")
-                    } footer: {
-                        Text("This information is used to calculate your estimated BAC. You can update it anytime in your profile.")
-                    }
-                }
-                
-                Spacer()
-                
-                // Buttons
-                VStack(spacing: 12) {
-                    Button(action: saveAndContinue) {
-                        Text("Continue")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    
-                    Button(action: skipOnboarding) {
-                        Text("Skip for now")
-                            .font(.subheadline)
+                        Text("Skipping will make BAC calculations less accurate.")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    
-                    Text("Skipping will make BAC calculations less accurate. You can update this info anytime in your profile.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 40)
                 }
-                .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        isWeightFocused = false
-                    }
-                }
+            .contentMargins(.bottom, 0, for: .scrollContent)
+            .onTapGesture {
+                focusedField = nil
             }
         }
     }
     
     private func saveAndContinue() {
-        isWeightFocused = false // Dismiss keyboard first
+        focusedField = nil
         profile.weight = weight
         profile.sex = sex
         profile.hasCompletedOnboarding = true
@@ -1120,7 +1165,7 @@ struct OnboardingView: View {
     }
     
     private func skipOnboarding() {
-        isWeightFocused = false // Dismiss keyboard first
+        focusedField = nil
         profile.hasCompletedOnboarding = true
         dismiss()
     }
@@ -1142,4 +1187,5 @@ struct OnboardingView: View {
     
     return ContentView()
         .modelContainer(container)
+        .preferredColorScheme(.dark)
 }
