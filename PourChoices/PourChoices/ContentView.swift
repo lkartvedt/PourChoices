@@ -1057,40 +1057,56 @@ struct AddOtherView: View {
     @Environment(\.modelContext) private var modelContext
     let session: DrinkingSession
     
-    @State private var type = "Zyn"
-    @State private var notes = ""
+    @State private var selectedType = "Zyn - 3mg"
+    @State private var nicotineMg = 3.0
     
     @FocusState private var focusedField: AddOtherField?
     
     enum AddOtherField {
-        case notes
+        case nicotine
     }
     
-    let types = ["Zyn", "Cigarette", "Vape", "Other"]
+    let nicotineTypes: [(name: String, defaultMg: Double)] = [
+        ("Zyn - 3mg", 3.0),
+        ("Zyn - 6mg", 6.0),
+        ("Vape - Puff", 0.2),
+        ("Vape - Session", 3.0),
+        ("Vape - Full cart", 20.0),
+        ("Cigarette", 2.0),
+        ("Cigar", 10.0),
+        ("Nicotine gum", 3.0),
+        ("Dip", 5.0)
+    ]
     
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker("Type", selection: $type) {
-                        ForEach(types, id: \.self) { type in
-                            Text(type).tag(type)
+                Section("Type") {
+                    Picker("Type", selection: $selectedType) {
+                        ForEach(nicotineTypes, id: \.name) { type in
+                            Text(type.name).tag(type.name)
                         }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: selectedType) { oldValue, newValue in
+                        updateDefaults(for: newValue)
                     }
                 }
                 
-                Section {
-                    TextField("Notes (optional)", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
-                        .focused($focusedField, equals: .notes)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            focusedField = nil
-                        }
+                Section("Details") {
+                    HStack {
+                        Text("Nicotine (mg)")
+                        Spacer()
+                        TextField("mg", value: $nicotineMg, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                            .focused($focusedField, equals: .nicotine)
+                    }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Add Entry")
+            .navigationTitle("Add Nicotine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1113,8 +1129,14 @@ struct AddOtherView: View {
         }
     }
     
+    private func updateDefaults(for type: String) {
+        if let nicType = nicotineTypes.first(where: { $0.name == type }) {
+            nicotineMg = nicType.defaultMg
+        }
+    }
+    
     private func addEntry() {
-        let entry = OtherEntry(type: type, notes: notes.isEmpty ? nil : notes)
+        let entry = OtherEntry(type: selectedType, nicotineMg: nicotineMg, notes: nil)
         session.otherEntries.append(entry)
         modelContext.insert(entry)
     }

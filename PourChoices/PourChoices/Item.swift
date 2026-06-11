@@ -105,20 +105,22 @@ final class LocationStop {
     }
 }
 
-// MARK: - Other Entries (Zyns, cigs, etc.)
+// MARK: - Other Entries (Nicotine, etc.)
 @Model
 final class OtherEntry {
     var id: UUID
     var timestamp: Date
-    var type: String // "Zyn", "Cigarette", "Vape", etc.
+    var type: String // "Zyn - 3mg", "Cigarette", "Vape - Puff", etc.
+    var nicotineMg: Double // Amount of nicotine in mg
     var notes: String?
     
     var session: DrinkingSession?
     
-    init(timestamp: Date = Date(), type: String, notes: String? = nil) {
+    init(timestamp: Date = Date(), type: String, nicotineMg: Double = 0, notes: String? = nil) {
         self.id = UUID()
         self.timestamp = timestamp
         self.type = type
+        self.nicotineMg = nicotineMg
         self.notes = notes
     }
 }
