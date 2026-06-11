@@ -10,9 +10,17 @@ import SwiftData
 
 @main
 struct PourChoicesApp: App {
+    @State private var showSplash = true
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            DrinkingSession.self,
+            DrinkEntry.self,
+            LocationStop.self,
+            OtherEntry.self,
+            FoodEntry.self,
+            WaterEntry.self,
+            UserProfile.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -25,8 +33,38 @@ struct PourChoicesApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if showSplash {
+                SplashScreenView(showSplash: $showSplash)
+                    .preferredColorScheme(.dark)
+            } else {
+                ContentView()
+                    .modelContainer(sharedModelContainer)
+                    .preferredColorScheme(.dark)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
+// MARK: - Splash Screen View
+struct SplashScreenView: View {
+    @Binding var showSplash: Bool
+    
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+            
+            Image("SplashPage")
+                .resizable()
+                .scaledToFit()
+        }
+        .onAppear {
+            // Dismiss splash after 2 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                withAnimation {
+                    showSplash = false
+                }
+            }
+        }
+    }
+}
+
