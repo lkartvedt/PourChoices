@@ -216,22 +216,26 @@ struct ActiveSessionView: View {
     @State private var showLocationPermissionAlert = false
     @State private var showLocationDeniedAlert = false
     
-    var currentBAC: Double {
-        let bac = BACCalculator.estimateBAC(
+    var peakBACAndTime: (Double, Double) {
+        let (bac, time) = BACCalculator.estimateBAC(
             drinks: session.drinks,
             food: session.food,
             water: session.water,
+            nicotine: session.nicotine,
             weight: userProfile.weight,
             sex: userProfile.sex,
+            heightInches: userProfile.heightInches,
+            ageYears: userProfile.age,
+            sessionStart: session.startTime,
             at: Date()
         )
-        
+
         // Update peak BAC if this is higher
         if bac > session.peakBAC {
             session.peakBAC = bac
         }
-        
-        return bac
+
+        return (bac, time)
     }
     
     var canLogLocation: Bool {
@@ -278,12 +282,15 @@ struct ActiveSessionView: View {
             // Big BAC Display
             VStack {
                 
-                Text(String(format: "%.3f%%", currentBAC))
+                Text(String(format: "%.3f%%", peakBACAndTime.0))
                     .font(.system(size: 60, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(currentBAC))
+                    .foregroundStyle(bacColor(peakBACAndTime.0))
                 
-                Text("BAC: \(bacStatus(currentBAC))")
+                Text("BAC: \(bacStatus(peakBACAndTime.0))")
                     .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                
+                Text("in \(peakBACAndTime.1)min")
                     .foregroundStyle(.secondary)
                 
                 // Location tracking status
@@ -721,8 +728,8 @@ struct ActiveSessionView: View {
             items.append(TimelineItem(id: location.id.uuidString, timestamp: location.arrivalTime, type: .location(location)))
         }
         
-        for other in session.otherEntries {
-            items.append(TimelineItem(id: other.id.uuidString, timestamp: other.timestamp, type: .other(other)))
+        for other in session.nicotine {
+            items.append(TimelineItem(id: other.id.uuidString, timestamp: other.timestamp, type: .nicotine(other)))
         }
         
         for food in session.food {
@@ -756,10 +763,10 @@ struct ActiveSessionView: View {
                         modelContext.delete(location)
                     }
                     
-                case .other(let other):
-                    if let otherIndex = session.otherEntries.firstIndex(where: { $0.id == other.id }) {
-                        session.otherEntries.remove(at: otherIndex)
-                        modelContext.delete(other)
+                case .nicotine(let nicotine):
+                    if let nicotineIndex = session.nicotine.firstIndex(where: { $0.id == nicotine.id }) {
+                        session.nicotine.remove(at: nicotineIndex)
+                        modelContext.delete(nicotine)
                     }
                     
                 case .food(let food):
@@ -788,7 +795,7 @@ struct TimelineItem {
 enum TimelineItemType {
     case drink(DrinkEntry)
     case location(LocationStop)
-    case other(OtherEntry)
+    case nicotine(NicotineEntry)
     case food(FoodEntry)
     case water(WaterEntry)
 }
@@ -844,7 +851,7 @@ struct TimelineRow: View {
             return food.locationName
         case .water(let water):
             return water.locationName
-        case .location, .other:
+        case .location, .nicotine:
             return nil // Don't show location for location entries or other entries
         }
     }
@@ -853,7 +860,7 @@ struct TimelineRow: View {
         switch item.type {
         case .drink: return "wineglass"
         case .location: return "location.fill"
-        case .other: return "smoke"
+        case .nicotine: return "smoke"
         case .food: return "fork.knife"
         case .water: return "drop.fill"
         }
@@ -863,7 +870,7 @@ struct TimelineRow: View {
         switch item.type {
         case .drink: return .blue
         case .location: return .green
-        case .other: return .orange
+        case .nicotine: return .orange
         case .food: return Color(.systemOrange)
         case .water: return Color(.systemCyan)
         }
@@ -875,7 +882,7 @@ struct TimelineRow: View {
             return drink.name ?? drink.drinkType
         case .location(let location):
             return location.locationName ?? "Unknown Location"
-        case .other(let other):
+        case .nicotine(let other):
             return other.type
         case .food(let food):
             return "\(food.quantity) slice\(food.quantity > 1 ? "s" : "") of \(food.foodType)"
@@ -1133,8 +1140,8 @@ struct AddOtherView: View {
     }
     
     private func addEntry() {
-        let entry = OtherEntry(type: selectedType, nicotineMg: nicotineMg, notes: nil)
-        session.otherEntries.append(entry)
+        let entry = NicotineEntry(type: selectedType, nicotineMg: nicotineMg, notes: nil)
+        session.nicotine.append(entry)
         modelContext.insert(entry)
     }
 }
@@ -1233,254 +1240,247 @@ struct SessionDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Peak BAC Display
-                VStack(spacing: 8) {
-                    Text("Peak BAC")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    Text(String(format: "%.3f%%", peakBAC))
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
-                        .foregroundStyle(bacColor(peakBAC))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .background(Color(.systemGroupedBackground))
-                
-                // Map
-                if !sortedLocations.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Route")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        Map(coordinateRegion: $mapRegion, annotationItems: sortedLocations) { location in
-                            MapAnnotation(coordinate: location.coordinate) {
-                                VStack(spacing: 4) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(annotationColor(for: location))
-                                            .frame(width: 32, height: 32)
-                                            .shadow(radius: 3)
-                                        
-                                        if location == sortedLocations.first {
-                                            Image(systemName: "flag.fill")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 14))
-                                        } else if location == sortedLocations.last && session.endTime != nil {
-                                            Image(systemName: "flag.checkered")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 14))
-                                        } else {
-                                            Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 14, weight: .bold))
-                                        }
-                                    }
-                                    
-                                    Text(location.locationName ?? "Unknown")
-                                        .font(.caption2)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(.systemBackground))
-                                        .cornerRadius(4)
-                                        .shadow(radius: 2)
+                peakBACHeader
+                mapSection
+                sessionInfoSection
+                drinksSection
+                locationsSection
+                otherEntriesSection
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle("Session Details")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder private var peakBACHeader: some View {
+        VStack(spacing: 8) {
+            Text("Peak BAC")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(String(format: "%.3f%%", peakBAC))
+                .font(.system(size: 48, weight: .bold, design: .rounded))
+                .foregroundStyle(bacColor(peakBAC))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    @ViewBuilder private var mapSection: some View {
+        if !sortedLocations.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Route")
+                    .font(.headline)
+                    .padding(.horizontal)
+                Map(coordinateRegion: $mapRegion, annotationItems: sortedLocations) { location in
+                    MapAnnotation(coordinate: location.coordinate) {
+                        VStack(spacing: 4) {
+                            ZStack {
+                                Circle()
+                                    .fill(annotationColor(for: location))
+                                    .frame(width: 32, height: 32)
+                                    .shadow(radius: 3)
+                                if location == sortedLocations.first {
+                                    Image(systemName: "flag.fill")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 14))
+                                } else if location == sortedLocations.last && session.endTime != nil {
+                                    Image(systemName: "flag.checkered")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 14))
+                                } else {
+                                    Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 14, weight: .bold))
                                 }
                             }
-                        }
-                        .frame(height: 300)
-                        .cornerRadius(12)
-                        .padding(.horizontal)
-                        .onAppear {
-                            calculateMapRegion()
+                            Text(location.locationName ?? "Unknown")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color(.systemBackground))
+                                .cornerRadius(4)
+                                .shadow(radius: 2)
                         }
                     }
                 }
-                
-                // Session Info
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Session Info")
-                        .font(.headline)
-                        .padding(.horizontal)
-                    
+                .frame(height: 300)
+                .cornerRadius(12)
+                .padding(.horizontal)
+                .onAppear { calculateMapRegion() }
+            }
+        }
+    }
+
+    @ViewBuilder private var sessionInfoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Session Info")
+                .font(.headline)
+                .padding(.horizontal)
+            GroupBox {
+                VStack(spacing: 12) {
+                    HStack {
+                        Text("Start")
+                        Spacer()
+                        Text(session.startTime, format: .dateTime)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let endTime = session.endTime {
+                        Divider()
+                        HStack {
+                            Text("End")
+                            Spacer()
+                            Text(endTime, format: .dateTime)
+                                .foregroundStyle(.secondary)
+                        }
+                        Divider()
+                        HStack {
+                            Text("Duration")
+                            Spacer()
+                            Text(durationText(from: session.startTime, to: endTime))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Divider()
+                    HStack {
+                        Text("Total Drinks")
+                        Spacer()
+                        Text("\(session.drinks.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    HStack {
+                        Text("Locations")
+                        Spacer()
+                        Text("\(session.locations.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    @ViewBuilder private var drinksSection: some View {
+        if !session.drinks.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Drinks (\(session.drinks.count))")
+                    .font(.headline)
+                    .padding(.horizontal)
+                ForEach(session.drinks.sorted(by: { $0.timestamp < $1.timestamp })) { drink in
                     GroupBox {
-                        VStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Start")
+                                Image(systemName: "wineglass.fill")
+                                    .foregroundStyle(.blue)
+                                Text(drink.name ?? drink.drinkType)
+                                    .font(.headline)
                                 Spacer()
-                                Text(session.startTime, format: .dateTime)
+                                Text(String(format: "%.2f std", drink.standardDrinks))
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            
-                            if let endTime = session.endTime {
-                                Divider()
-                                HStack {
-                                    Text("End")
-                                    Spacer()
-                                    Text(endTime, format: .dateTime)
-                                        .foregroundStyle(.secondary)
-                                }
-                                
-                                Divider()
-                                HStack {
-                                    Text("Duration")
-                                    Spacer()
-                                    Text(durationText(from: session.startTime, to: endTime))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            
-                            Divider()
                             HStack {
-                                Text("Total Drinks")
+                                Text("\(String(format: "%.1f", drink.alcoholContent))% ABV • \(String(format: "%.1f", drink.volumeOz)) oz")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 Spacer()
-                                Text("\(session.drinks.count)")
+                                Text(drink.timestamp, style: .time)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            
-                            Divider()
+                            if let locationName = drink.locationName {
+                                HStack {
+                                    Image(systemName: "location.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.green)
+                                    Text(locationName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var locationsSection: some View {
+        if !sortedLocations.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Locations (\(session.locations.count))")
+                    .font(.headline)
+                    .padding(.horizontal)
+                ForEach(sortedLocations) { location in
+                    GroupBox {
+                        HStack {
+                            ZStack {
+                                Circle()
+                                    .fill(annotationColor(for: location))
+                                    .frame(width: 28, height: 28)
+                                if location == sortedLocations.first {
+                                    Image(systemName: "flag.fill")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 12))
+                                } else if location == sortedLocations.last && session.endTime != nil {
+                                    Image(systemName: "flag.checkered")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 12))
+                                } else {
+                                    Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(location.locationName ?? "Unknown")
+                                    .font(.headline)
+                                Text(location.arrivalTime, style: .time)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var otherEntriesSection: some View {
+        if !session.nicotine.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Other (\(session.nicotine.count))")
+                    .font(.headline)
+                    .padding(.horizontal)
+                ForEach(session.nicotine.sorted(by: { $0.timestamp < $1.timestamp })) { entry in
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Locations")
+                                Image(systemName: "smoke")
+                                    .foregroundStyle(.orange)
+                                Text(entry.type)
+                                    .font(.headline)
                                 Spacer()
-                                Text("\(session.locations.count)")
+                                Text(entry.timestamp, style: .time)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let notes = entry.notes {
+                                Text(notes)
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                     .padding(.horizontal)
                 }
-                
-                // Drinks
-                if !session.drinks.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Drinks (\(session.drinks.count))")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(session.drinks.sorted(by: { $0.timestamp < $1.timestamp })) { drink in
-                            GroupBox {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Image(systemName: "wineglass.fill")
-                                            .foregroundStyle(.blue)
-                                        Text(drink.name ?? drink.drinkType)
-                                            .font(.headline)
-                                        Spacer()
-                                        Text(String(format: "%.2f std", drink.standardDrinks))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    
-                                    HStack {
-                                        Text("\(String(format: "%.1f", drink.alcoholContent))% ABV • \(String(format: "%.1f", drink.volumeOz)) oz")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        Text(drink.timestamp, style: .time)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    
-                                    if let locationName = drink.locationName {
-                                        HStack {
-                                            Image(systemName: "location.fill")
-                                                .font(.caption2)
-                                                .foregroundStyle(.green)
-                                            Text(locationName)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                }
-                
-                // Locations Timeline
-                if !sortedLocations.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Locations (\(session.locations.count))")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(sortedLocations) { location in
-                            GroupBox {
-                                HStack {
-                                    ZStack {
-                                        Circle()
-                                            .fill(annotationColor(for: location))
-                                            .frame(width: 28, height: 28)
-                                        
-                                        if location == sortedLocations.first {
-                                            Image(systemName: "flag.fill")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 12))
-                                        } else if location == sortedLocations.last && session.endTime != nil {
-                                            Image(systemName: "flag.checkered")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 12))
-                                        } else {
-                                            Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
-                                                .foregroundColor(.white)
-                                                .font(.system(size: 12, weight: .bold))
-                                        }
-                                    }
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(location.locationName ?? "Unknown")
-                                            .font(.headline)
-                                        Text(location.arrivalTime, style: .time)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    
-                                    Spacer()
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                }
-                
-                // Other Entries
-                if !session.otherEntries.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Other (\(session.otherEntries.count))")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        ForEach(session.otherEntries.sorted(by: { $0.timestamp < $1.timestamp })) { entry in
-                            GroupBox {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Image(systemName: "smoke")
-                                            .foregroundStyle(.orange)
-                                        Text(entry.type)
-                                            .font(.headline)
-                                        Spacer()
-                                        Text(entry.timestamp, style: .time)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    
-                                    if let notes = entry.notes {
-                                        Text(notes)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                    }
-                }
             }
-            .padding(.vertical)
         }
-        .navigationTitle("Session Details")
-        .navigationBarTitleDisplayMode(.inline)
     }
     
     private func bacColor(_ bac: Double) -> Color {

@@ -81,9 +81,11 @@ public enum BACEventKind {
 
 public struct BACEvent {
     public let time: TimeInterval   // seconds since session start
+    public let duration: TimeInterval
     public let kind: BACEventKind
-    public init(time: TimeInterval, kind: BACEventKind) {
+    public init(time: TimeInterval, kind: BACEventKind, duration: TimeInterval = 0) {
         self.time = time
+        self.duration = duration
         self.kind = kind
     }
 }
@@ -181,13 +183,13 @@ public struct BACModelConstants {
 
     // --- Absorption / gastric state ---
     /// Fasting ceiling for the absorption rate constant (per minute).
-    public var kaFasting: Double = 0.06
+    public var kaFasting: Double = 0.08
 
     /// ka = kaFasting * exp(-lambda * S). Larger lambda = stronger slowing per unit S.
     public var lambda: Double = 1.0
 
     /// S decays as dS/dt = -gamma * ka * S. Couples suppression clearance to emptying.
-    public var gamma: Double = 0.5
+    public var gamma: Double = 0.6
 
     /// Amount added to S by ONE SLICE of pizza (or comparable). A full meal is a
     /// few taps; because S is additive and decays slowly, repeated slices
@@ -195,8 +197,9 @@ public struct BACModelConstants {
     /// emerges from repeated single-slice events.
     public var foodS: Double = 0.6
     /// Amount added to S by one nicotine event. Calibrated so ka drops ~0.75x,
-    /// matching the ~1.5x lengthening of gastric emptying time observed for smoking.
-    public var nicotineS: Double = 0.5
+    /// matching the ~1.5x lengthening of gastric emptying time observed for smoking
+    /// after 4 cigarettes.
+    public var nicotineS: Double = 0.1
     /// Water has a small, brief motility effect; mostly it dilutes.
     public var waterS: Double = 0.15
 
@@ -206,7 +209,7 @@ public struct BACModelConstants {
     /// before going out" and "I ate a slice during" use the same physics. A
     /// pre-session meal is larger than one slice, hence > foodS. Set the session
     /// to start fasting by passing startsFed=false in BACTuning (seed = 0).
-    public var startedFedS: Double = 1.5
+    public var startedFedS: Double = 0.6
 
     /// Physiological bounds on the absorption rate constant ka (per minute),
     /// from realistic gastric-emptying half-lives (~8 min fast to ~2 h slow):
@@ -348,9 +351,10 @@ public final class BACSolver {
         for e in sorted {
             if case let .finishedDrink(grams) = e.kind {
                 let endMin = e.time / Self.secondsPerMinute
-                let windowMin = max(endMin - prevDrinkEndMin, 1.0)
+                let startMin = e.duration > 0.0 ? endMin - e.duration : prevDrinkEndMin
+                let windowMin = max(endMin - startMin, 0.000001)
                 let rate = (grams * k.gastricBioavailability) / windowMin
-                drinkWindows.append(DrinkWindow(start: prevDrinkEndMin, end: endMin, rate: rate))
+                drinkWindows.append(DrinkWindow(start: startMin, end: endMin, rate: rate))
                 prevDrinkEndMin = endMin
             }
         }
@@ -419,11 +423,13 @@ public final class BACSolver {
         var peakBAC = 0.0
         var peakTimeMin = 0.0
 
-        let sampleEverySteps = max(Int((60.0 / stepSeconds).rounded()), 1)
+        let sampleEverySteps = max(1, Int(300 / stepSeconds))
         var stepIndex = 0
         var nextBumpIdx = 0
         var nextBreathIdx = 0
 
+        print(endMin)
+        print(drinkWindows)
         while t <= endMin {
             // Apply any S bumps whose time we've reached.
             while nextBumpIdx < sBumps.count && t >= sBumps[nextBumpIdx].timeMin {
@@ -456,10 +462,12 @@ public final class BACSolver {
             if S < 0 { S = 0 }
             t += dtMin
         }
+        
+        let almostPeakTime = (curve.first(where: { $0.bac >= 0.9*peakBAC })?.time ?? peakTimeMin) / Self.secondsPerMinute
 
         return BACResult(curve: curve,
                          peakBAC: peakBAC,
-                         peakTime: peakTimeMin * Self.secondsPerMinute,
+                         peakTime: almostPeakTime,
                          currentBAC: curve.last?.bac ?? 0.0)
     }
 

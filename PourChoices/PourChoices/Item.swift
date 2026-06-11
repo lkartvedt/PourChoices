@@ -24,8 +24,8 @@ final class DrinkingSession {
     @Relationship(deleteRule: .cascade, inverse: \LocationStop.session)
     var locations: [LocationStop] = []
     
-    @Relationship(deleteRule: .cascade, inverse: \OtherEntry.session)
-    var otherEntries: [OtherEntry] = []
+    @Relationship(deleteRule: .cascade, inverse: \NicotineEntry.session)
+    var nicotine: [NicotineEntry] = []
     
     @Relationship(deleteRule: .cascade, inverse: \FoodEntry.session)
     var food: [FoodEntry] = []
@@ -107,7 +107,7 @@ final class LocationStop {
 
 // MARK: - Other Entries (Nicotine, etc.)
 @Model
-final class OtherEntry {
+final class NicotineEntry {
     var id: UUID
     var timestamp: Date
     var type: String // "Zyn - 3mg", "Cigarette", "Vape - Puff", etc.
@@ -215,62 +215,110 @@ final class UserProfile {
 }
 
 // MARK: - BAC Calculator
+/// Bridges session data to BACSolver for physiologically-grounded BAC estimation.
 struct BACCalculator {
-    /// Enhanced Widmark formula with food and hydration factors
-    /// BAC = (Alcohol consumed in grams / (Body weight in grams × r)) × (1 - food factor) - (0.015 × Hours) - (hydration reduction)
-    /// r = 0.68 for men, 0.55 for women
-    /// Food slows absorption and reduces peak BAC by ~20-30% per substantial meal
-    /// Water helps with metabolism and dilution
-    static func estimateBAC(drinks: [DrinkEntry], food: [FoodEntry], water: [WaterEntry], weight: Double, sex: String, at time: Date) -> Double {
-        let r = sex.lowercased() == "female" ? 0.55 : 0.68
-        let weightInGrams = weight * 453.592 // lbs to grams
-        
-        var totalAlcoholGrams: Double = 0
-        var earliestDrinkTime: Date?
-        
-        // Calculate total alcohol consumed
+
+    /// Estimate current BAC using the BACSolver ODE model.
+    ///
+    /// All session events recorded at or before `time` are converted to
+    /// `BACEvent` values and handed to `BACSolver.simulate`. The simulation
+    /// runs from session start through `time` plus a short tail so the solver
+    /// can settle, and `currentBAC` from the result is returned.
+    static func estimateBAC(drinks: [DrinkEntry],
+                             food: [FoodEntry],
+                             water: [WaterEntry],
+                             nicotine: [NicotineEntry],
+                             weight: Double,      // lbs
+                             sex: String,
+                             heightInches: Double,
+                             ageYears: Int,
+                             sessionStart: Date,
+                             at time: Date) -> (Double, Double) {
+
+        // Convert user profile units to what BACSolver expects.
+        let weightKg     = weight * 0.453592
+        let heightCm     = heightInches * 2.54
+        let solverSex: Sex = sex.lowercased() == "female" ? .female : .male
+
+        let person = Person(
+            sex: solverSex,
+            ageYears: Double(ageYears),
+            heightCm: heightCm,
+            weightKg: weightKg
+        )
+
+        // Build BACEvent list from session data. Time is seconds since sessionStart.
+        var events: [BACEvent] = []
+
         for drink in drinks where drink.timestamp <= time {
-            // Calculate pure alcohol in oz, convert to grams (1 oz = 28.35 grams)
-            let pureAlcoholOz = drink.volumeOz * (drink.alcoholContent / 100.0)
-            let alcoholGrams = pureAlcoholOz * 28.35
-            totalAlcoholGrams += alcoholGrams
-            
-            if earliestDrinkTime == nil || drink.timestamp < earliestDrinkTime! {
-                earliestDrinkTime = drink.timestamp
+            let tSec = drink.timestamp.timeIntervalSince(sessionStart)
+            let duration = drink.drinkType == "Shot" ? 5.0/60.0 : 0.0
+            let volumeML = drink.volumeOz * 29.5735
+            let grams    = BACSolver.grams(volumeML: volumeML, abvPercent: drink.alcoholContent)
+            events.append(BACEvent(time: tSec, kind: .finishedDrink(grams: grams), duration: duration))
+        }
+
+        for f in food where f.timestamp <= time {
+            let tSec = f.timestamp.timeIntervalSince(sessionStart)
+            // Each quantity unit is one "slice" — emit one food event per slice.
+            for _ in 0 ..< f.quantity {
+                events.append(BACEvent(time: tSec, kind: .food))
             }
         }
-        
-        guard let startTime = earliestDrinkTime, totalAlcoholGrams > 0 else {
-            return 0
+
+        for w in water where w.timestamp <= time {
+            let tSec = w.timestamp.timeIntervalSince(sessionStart)
+            events.append(BACEvent(time: tSec, kind: .water))
         }
         
-        // Calculate food factor (reduces BAC absorption)
-        // Each slice of pizza reduces absorption by ~15%
-        let foodSlices = food.filter { $0.timestamp <= time }.reduce(0) { $0 + $1.quantity }
-        let foodReduction = min(0.40, Double(foodSlices) * 0.15) // Max 40% reduction
+        for n in nicotine where n.timestamp <= time {
+            let tSec = n.timestamp.timeIntervalSince(sessionStart)
+            events.append(BACEvent(time: tSec, kind: .nicotine))
+        }
+
+        // No events means zero BAC.
+        guard !events.isEmpty else { return (0,0) }
+
+        let solver = BACSolver(person: person)
+        // Simulate up to the current moment; no extra tail needed for live display.
+        //let nowSec  = time.timeIntervalSince(sessionStart)
+        let result  = solver.simulate(events: events, until: 6*3600, stepSeconds: 1)
         
-        // Calculate water benefit (improves metabolism slightly)
-        // Each 8oz of water adds ~0.005% per hour to metabolism rate
-        let waterOz = water.filter { $0.timestamp <= time }.reduce(0.0) { $0 + $1.volumeOz }
-        let waterGlasses = waterOz / 8.0
-        let extraMetabolism = min(0.010, waterGlasses * 0.002) // Max 0.010% bonus per hour
+        var bacs: [(Double,Double)] = []
+        for sample in result.curve {
+            bacs.append((sample.bac, sample.ka))
+        }
+        print(bacs.map{$0.0})
+        print(bacs.map{$0.1})
         
-        // Time-based metabolism
-        let hoursElapsed = time.timeIntervalSince(startTime) / 3600.0
-        let baseMetabolismRate = 0.015 * hoursElapsed
-        let totalMetabolismRate = (0.015 + extraMetabolism) * hoursElapsed
-        
-        // Calculate BAC with food reduction
-        let rawBAC = (totalAlcoholGrams / (weightInGrams * r)) * 100
-        let foodAdjustedBAC = rawBAC * (1.0 - foodReduction)
-        let finalBAC = foodAdjustedBAC - totalMetabolismRate
-        
-        return max(0, finalBAC) // Can't be negative
+
+        // Find the BAC sample closest to `nowSec`.
+        //guard let sample = result.curve.min(by: { abs($0.time - nowSec) < abs($1.time - nowSec) }) else {
+        //    return 0
+        //}
+        return (result.peakBAC, result.peakTime)
     }
-    
-    /// Legacy method for backward compatibility (no food/water)
-    static func estimateBAC(drinks: [DrinkEntry], weight: Double, sex: String, at time: Date) -> Double {
-        return estimateBAC(drinks: drinks, food: [], water: [], weight: weight, sex: sex, at: time)
+
+    /// Convenience overload used by `ActiveSessionView` (derives session start
+    /// from the earliest drink timestamp, matching legacy behaviour).
+    static func estimateBAC(drinks: [DrinkEntry],
+                             food: [FoodEntry],
+                             water: [WaterEntry],
+                             nicotine: [NicotineEntry],
+                             weight: Double,
+                             sex: String,
+                             heightInches: Double,
+                             ageYears: Int,
+                             at time: Date) -> (Double, Double) {
+
+        // Use the earliest drink as the session-start anchor.
+        let sessionStart = drinks.map(\.timestamp).min() ?? time
+        return estimateBAC(
+            drinks: drinks, food: food, water: water, nicotine: nicotine,
+            weight: weight, sex: sex,
+            heightInches: heightInches, ageYears: ageYears,
+            sessionStart: sessionStart, at: time
+        )
     }
 }
 

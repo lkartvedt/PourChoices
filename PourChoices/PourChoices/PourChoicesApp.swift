@@ -17,7 +17,7 @@ struct PourChoicesApp: App {
             DrinkingSession.self,
             DrinkEntry.self,
             LocationStop.self,
-            OtherEntry.self,
+            NicotineEntry.self,
             FoodEntry.self,
             WaterEntry.self,
             UserProfile.self
