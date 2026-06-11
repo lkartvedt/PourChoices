@@ -378,6 +378,7 @@ struct ActiveSessionView: View {
                     ForEach(combinedTimeline(), id: \.id) { item in
                         TimelineRow(item: item)
                     }
+                    .onDelete(perform: deleteTimelineItem)
                 }
             }
             .listStyle(.plain)
@@ -702,6 +703,48 @@ struct ActiveSessionView: View {
         }
         
         return items.sorted { $0.timestamp > $1.timestamp }
+    }
+    
+    private func deleteTimelineItem(at offsets: IndexSet) {
+        let timeline = combinedTimeline()
+        
+        for index in offsets {
+            let item = timeline[index]
+            
+            withAnimation {
+                switch item.type {
+                case .drink(let drink):
+                    if let drinkIndex = session.drinks.firstIndex(where: { $0.id == drink.id }) {
+                        session.drinks.remove(at: drinkIndex)
+                        modelContext.delete(drink)
+                    }
+                    
+                case .location(let location):
+                    if let locationIndex = session.locations.firstIndex(where: { $0.id == location.id }) {
+                        session.locations.remove(at: locationIndex)
+                        modelContext.delete(location)
+                    }
+                    
+                case .other(let other):
+                    if let otherIndex = session.otherEntries.firstIndex(where: { $0.id == other.id }) {
+                        session.otherEntries.remove(at: otherIndex)
+                        modelContext.delete(other)
+                    }
+                    
+                case .food(let food):
+                    if let foodIndex = session.food.firstIndex(where: { $0.id == food.id }) {
+                        session.food.remove(at: foodIndex)
+                        modelContext.delete(food)
+                    }
+                    
+                case .water(let water):
+                    if let waterIndex = session.water.firstIndex(where: { $0.id == water.id }) {
+                        session.water.remove(at: waterIndex)
+                        modelContext.delete(water)
+                    }
+                }
+            }
+        }
     }
 }
 
