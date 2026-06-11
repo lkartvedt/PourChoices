@@ -21,9 +21,18 @@ class LocationTracker: NSObject {
     // Callback for when a significant location change happens
     var onSignificantLocationChange: ((CLLocation, String?) -> Void)?
     
+    // Callback for when initial permission is granted
+    var onInitialPermissionGranted: (() -> Void)?
+    
     // Track last recorded location to avoid duplicates
     private var lastRecordedLocation: CLLocation?
     private let minimumDistanceThreshold: CLLocationDistance = 50.0 // meters (about 164 feet)
+    
+    // Track if we've started tracking after permission was granted
+    private var hasStartedAfterPermission = false
+    
+    // Track if we should skip the next automatic location (to prevent duplicates)
+    var skipNextAutomaticLocation = false
     
     override init() {
         super.init()
@@ -46,12 +55,15 @@ class LocationTracker: NSObject {
         
         locationManager.startUpdatingLocation()
         isTracking = true
+        hasStartedAfterPermission = true
     }
     
     func stopTracking() {
         locationManager.stopUpdatingLocation()
         isTracking = false
         lastRecordedLocation = nil
+        hasStartedAfterPermission = false
+        skipNextAutomaticLocation = false
     }
     
     // Get place name from coordinates
@@ -209,12 +221,27 @@ class LocationTracker: NSObject {
 // MARK: - CLLocationManagerDelegate
 extension LocationTracker: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let oldStatus = authorizationStatus
         authorizationStatus = manager.authorizationStatus
         
-        if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
-            if isTracking {
-                locationManager.startUpdatingLocation()
-            }
+        // If we just got authorized and haven't started tracking yet
+        if (oldStatus == .notDetermined || oldStatus == .denied) && 
+           (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways) &&
+           !hasStartedAfterPermission {
+            
+            // Start tracking immediately
+            locationManager.startUpdatingLocation()
+            isTracking = true
+            hasStartedAfterPermission = true
+            
+            // Notify that permission was granted
+            onInitialPermissionGranted?()
+        }
+        
+        // If permission was revoked while tracking
+        if (authorizationStatus == .denied || authorizationStatus == .restricted) && isTracking {
+            locationManager.stopUpdatingLocation()
+            isTracking = false
         }
     }
     
@@ -222,6 +249,14 @@ extension LocationTracker: CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         
         currentLocation = location
+        
+        // Skip this location if we're waiting for the manual initial location to be logged
+        if skipNextAutomaticLocation {
+            print("⏭️ Skipping automatic location to prevent duplicate")
+            skipNextAutomaticLocation = false
+            lastRecordedLocation = location // Still update this to prevent logging it again
+            return
+        }
         
         // Check if this is a significant enough location change
         if shouldRecordLocation(location) {

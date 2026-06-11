@@ -213,6 +213,7 @@ struct ActiveSessionView: View {
     @State private var showingAddOther = false
     @State private var locationTracker = LocationTracker()
     @State private var showLocationPermissionAlert = false
+    @State private var showLocationDeniedAlert = false
     
     var currentBAC: Double {
         BACCalculator.estimateBAC(
@@ -223,6 +224,11 @@ struct ActiveSessionView: View {
             sex: userProfile.sex,
             at: Date()
         )
+    }
+    
+    var canLogLocation: Bool {
+        locationTracker.authorizationStatus == .authorizedWhenInUse || 
+        locationTracker.authorizationStatus == .authorizedAlways
     }
     
     var body: some View {
@@ -323,11 +329,12 @@ struct ActiveSessionView: View {
                     Button(action: addLocation) {
                         Label("Log Location", systemImage: "location")
                             .font(.subheadline)
-                            .foregroundStyle(Color.white)
+                            .foregroundStyle(canLogLocation ? Color.white : Color.gray)
                             .frame(maxWidth: .infinity)
                             .padding()
-                            .background(Color(.darkGray), in: Capsule())
+                            .background(canLogLocation ? Color(.darkGray) : Color(.systemGray5), in: Capsule())
                     }
+                    .disabled(!canLogLocation)
                 }
             }
             .padding(.horizontal)
@@ -369,11 +376,31 @@ struct ActiveSessionView: View {
         } message: {
             Text("Enable location access to automatically track bar hops. Go to Settings > Privacy > Location Services.")
         }
+        .alert("Location Access Denied", isPresented: $showLocationDeniedAlert) {
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Location access is required to log locations. Please enable location permissions in Settings > Privacy & Security > Location Services > Pour Choices.")
+        }
         .onAppear {
             setupLocationTracking()
         }
         .onDisappear {
             locationTracker.stopTracking()
+        }
+        .onChange(of: locationTracker.authorizationStatus) { oldValue, newValue in
+            // Update UI when authorization status changes
+            print("📍 Authorization changed from \(oldValue.rawValue) to \(newValue.rawValue)")
+            
+            // If permission was just granted, start tracking
+            if (oldValue == .notDetermined || oldValue == .denied) &&
+               (newValue == .authorizedWhenInUse || newValue == .authorizedAlways) {
+                print("✅ Permission granted, tracking will start automatically")
+            }
         }
     }
     
@@ -390,13 +417,104 @@ struct ActiveSessionView: View {
             modelContext.insert(stop)
         }
         
-        // Start tracking
-        locationTracker.startTracking()
+        // Set up callback for when permission is first granted
+        locationTracker.onInitialPermissionGranted = { [weak locationTracker] in
+            guard let locationTracker = locationTracker else { return }
+            
+            // Tell the tracker to skip the next automatic location since we'll log it manually
+            locationTracker.skipNextAutomaticLocation = true
+            
+            // Log initial location after permission is granted
+            Task {
+                // Wait for location to be acquired
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                
+                guard let location = locationTracker.currentLocation else {
+                    print("⚠️ No location available after permission granted")
+                    // Reset the skip flag if we couldn't get a location
+                    await MainActor.run {
+                        locationTracker.skipNextAutomaticLocation = false
+                    }
+                    return
+                }
+                
+                // Check if we already have a location for this session
+                await MainActor.run {
+                    guard session.locations.isEmpty else {
+                        print("✅ Session already has locations")
+                        locationTracker.skipNextAutomaticLocation = false
+                        return
+                    }
+                }
+                
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                
+                await MainActor.run {
+                    let stop = LocationStop(
+                        locationName: venueName,
+                        latitude: location.coordinate.latitude,
+                        longitude: location.coordinate.longitude
+                    )
+                    session.locations.append(stop)
+                    modelContext.insert(stop)
+                    print("✅ Logged initial location after permission: \(venueName)")
+                }
+            }
+        }
         
-        // Check permission status
-        if locationTracker.authorizationStatus == .denied || 
-           locationTracker.authorizationStatus == .restricted {
+        // Check authorization status first
+        let status = locationTracker.authorizationStatus
+        
+        switch status {
+        case .notDetermined:
+            // Request permission - the delegate will handle starting tracking after permission is granted
+            locationTracker.requestPermission()
+            
+        case .authorizedWhenInUse, .authorizedAlways:
+            // Permission already granted - start tracking immediately
+            locationTracker.startTracking()
+            
+            // Tell the tracker to skip the next automatic location since we'll log it manually
+            locationTracker.skipNextAutomaticLocation = true
+            
+            // Log initial location after a short delay to ensure we have a location
+            Task {
+                // Wait a moment for location to be acquired
+                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                
+                guard let location = locationTracker.currentLocation else {
+                    print("⚠️ No location available yet")
+                    locationTracker.skipNextAutomaticLocation = false
+                    return
+                }
+                
+                // Check if we already have a location for this session
+                guard session.locations.isEmpty else {
+                    print("✅ Session already has locations")
+                    locationTracker.skipNextAutomaticLocation = false
+                    return
+                }
+                
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                
+                await MainActor.run {
+                    let stop = LocationStop(
+                        locationName: venueName,
+                        latitude: location.coordinate.latitude,
+                        longitude: location.coordinate.longitude
+                    )
+                    session.locations.append(stop)
+                    modelContext.insert(stop)
+                    print("✅ Logged initial location: \(venueName)")
+                }
+            }
+            
+        case .denied, .restricted:
+            // Show alert that location is denied
             showLocationPermissionAlert = true
+            
+        @unknown default:
+            break
         }
     }
     
@@ -459,8 +577,19 @@ struct ActiveSessionView: View {
     }
     
     private func addLocation() {
+        // Check if location permission is denied
+        guard canLogLocation else {
+            showLocationDeniedAlert = true
+            return
+        }
+        
         // Manual location logging
         guard let location = locationTracker.currentLocation else {
+            // If we don't have a current location yet, request it
+            if locationTracker.authorizationStatus == .notDetermined {
+                locationTracker.requestPermission()
+            }
+            
             // Fallback if no location available
             let stop = LocationStop(
                 locationName: "Unknown Location",
