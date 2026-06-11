@@ -1559,12 +1559,20 @@ struct ProfileSettingsView: View {
     var body: some View {
         Form {
             Section("Your Info") {
-                DatePicker("Birthdate", 
-                          selection: Binding(
-                            get: { profile.birthdate ?? Date() },
-                            set: { profile.birthdate = $0 }
-                          ),
-                          displayedComponents: .date)
+                VStack(alignment: .leading, spacing: 4) {
+                    DatePicker("Birthdate",
+                              selection: Binding(
+                                get: { profile.birthdate ?? Date() },
+                                set: { profile.birthdate = $0 }
+                              ),
+                              in: ...Calendar.current.date(byAdding: .year, value: -21, to: Date())!,
+                              displayedComponents: .date)
+                        .tint(.black)
+                    
+                    Text("Must be 21+")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 
                 HStack {
                     Text("Age")
