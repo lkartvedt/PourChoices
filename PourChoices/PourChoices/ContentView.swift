@@ -943,56 +943,114 @@ struct AddDrinkView: View {
     
     let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
     
+    // Maps display name to asset name
+    func assetName(for type: String) -> String {
+        switch type {
+        case "Mixed Drink": return "MixedDrink"
+        default: return type
+        }
+    }
+    
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Drink Type") {
-                    Picker("Type", selection: $drinkType) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Drink type grid
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         ForEach(drinkTypes, id: \.self) { type in
-                            Text(type).tag(type)
+                            Button(action: {
+                                drinkType = type
+                                updateDefaults(for: type)
+                            }) {
+                                VStack(spacing: 8) {
+                                    Image(assetName(for: type))
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 56, height: 56)
+                                    Text(type)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(drinkType == type ? Color.black : Color.primary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(drinkType == type ? Color.accent : Color(.secondarySystemGroupedBackground))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(drinkType == type ? Color.accent : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: drinkType) { oldValue, newValue in
-                        updateDefaults(for: newValue)
-                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                     
-                    TextField("Name (optional)", text: $name)
-                        .focused($focusedField, equals: .name)
-                        .submitLabel(.done)
-                        .onSubmit {
-                            focusedField = nil
+                    // Details section
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Details")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+                            .padding(.bottom, 6)
+                        
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text("ABV %")
+                                Spacer()
+                                TextField("ABV", value: $alcoholContent, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                    .focused($focusedField, equals: .abv)
+                            }
+                            .padding()
+                            
+                            Divider().padding(.leading)
+                            
+                            HStack {
+                                Text("Volume (oz)")
+                                Spacer()
+                                TextField("oz", value: $volumeOz, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                    .focused($focusedField, equals: .volume)
+                            }
+                            .padding()
+                            
+                            Divider().padding(.leading)
+                            
+                            HStack {
+                                TextField("Name (optional)", text: $name)
+                                    .focused($focusedField, equals: .name)
+                                    .submitLabel(.done)
+                                    .onSubmit { focusedField = nil }
+                            }
+                            .padding()
+                            
+                            Divider().padding(.leading)
+                            
+                            let drink = DrinkEntry(drinkType: drinkType, alcoholContent: alcoholContent, volumeOz: volumeOz)
+                            HStack {
+                                Text("Standard drinks")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(String(format: "%.2f", drink.standardDrinks))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding()
                         }
-                }
-                
-                Section("Details") {
-                    HStack {
-                        Text("ABV %")
-                        Spacer()
-                        TextField("ABV", value: $alcoholContent, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .focused($focusedField, equals: .abv)
-                    }
-                    
-                    HStack {
-                        Text("Volume (oz)")
-                        Spacer()
-                        TextField("oz", value: $volumeOz, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .focused($focusedField, equals: .volume)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
                     }
                 }
-                
-                Section {
-                    let drink = DrinkEntry(drinkType: drinkType, alcoholContent: alcoholContent, volumeOz: volumeOz)
-                    Text("Standard drinks: \(String(format: "%.2f", drink.standardDrinks))")
-                        .foregroundStyle(.secondary)
-                }
+                .padding(.bottom, 24)
             }
+            .background(Color(.systemGroupedBackground))
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Drink")
             .navigationBarTitleDisplayMode(.inline)
@@ -1029,10 +1087,10 @@ struct AddDrinkView: View {
             alcoholContent = 40.0
             volumeOz = 1.5
         case "Cocktail":
-            alcoholContent = 15.0
+            alcoholContent = 20.0
             volumeOz = 4.0
         case "Mixed Drink":
-            alcoholContent = 10.0
+            alcoholContent = 15.0
             volumeOz = 8.0
         default:
             break
