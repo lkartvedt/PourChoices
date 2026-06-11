@@ -282,28 +282,17 @@ struct ActiveSessionView: View {
             // Big BAC Display
             VStack {
                 
-                Text(String(format: "%.3f%%", peakBACAndTime.0))
-                    .font(.system(size: 60, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(peakBACAndTime.0))
-                
                 Text("BAC: \(bacStatus(peakBACAndTime.0))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 
-                Text("in \(peakBACAndTime.1)min")
-                    .foregroundStyle(.secondary)
+                Text(String(format: "%.3f%%", peakBACAndTime.0))
+                    .font(.system(size: 60, weight: .bold, design: .rounded))
+                    .foregroundStyle(bacColor(peakBACAndTime.0))
                 
-                // Location tracking status
-                if locationTracker.isTracking {
-                    HStack(spacing: 4) {
-                        Image(systemName: "location.fill")
-                            .font(.caption2)
-                        Text("Auto-tracking locations")
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.green)
-                    .padding(.top, 4)
-                }
+                Text("in \(Int(peakBACAndTime.1.rounded())) min")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(bacColor(peakBACAndTime.0))
             }
             .frame(maxWidth: .infinity)
             .background(Color(.systemGroupedBackground))
@@ -381,6 +370,19 @@ struct ActiveSessionView: View {
                     }
                     .disabled(!canLogLocation)
                 }
+                
+                // Location tracking status
+                if locationTracker.isTracking {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.fill")
+                            .font(.caption2)
+                        Text("Auto-tracking locations")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.green)
+                    .padding(.top, 4)
+                }
+                
             }
             .padding(.horizontal)
             
@@ -400,7 +402,7 @@ struct ActiveSessionView: View {
                 Text("End Session")
                     .font(.headline)
                     .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: 200)
                     .padding()
                     .background(Color.red, in: Capsule())
             }
