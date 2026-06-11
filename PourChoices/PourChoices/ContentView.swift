@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var showingNewSession = false
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
+    @State private var showingSessionWarning = false
     @State private var navigationPath = NavigationPath()
     
     var activeSession: DrinkingSession? {
@@ -159,6 +160,14 @@ struct ContentView: View {
                 OnboardingView(profile: userProfile)
                     .interactiveDismissDisabled()
             }
+            .alert("Safety Disclaimer", isPresented: $showingSessionWarning) {
+                Button("Accept") {
+                    createNewSession()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("DO NOT DRIVE after consuming any alcohol. BAC calculations are estimates based on user-provided data and may not be accurate. This app cannot determine your actual BAC or fitness to drive. Never use this app to decide if you are safe to drive. Always use a designated driver, rideshare, or public transportation.")
+            }
             .onAppear {
                 // Check if user needs age verification first
                 if !userProfile.hasCompletedAgeVerification {
@@ -171,6 +180,10 @@ struct ContentView: View {
     }
     
     private func startNewSession() {
+        showingSessionWarning = true
+    }
+    
+    private func createNewSession() {
         withAnimation {
             let session = DrinkingSession()
             modelContext.insert(session)
