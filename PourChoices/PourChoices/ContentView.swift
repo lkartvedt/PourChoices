@@ -231,19 +231,53 @@ struct ActiveSessionView: View {
         locationTracker.authorizationStatus == .authorizedAlways
     }
     
+    var uniqueLocationsCount: Int {
+        var uniqueLocationNames = Set<String>()
+        
+        // Add explicit location stops
+        for location in session.locations {
+            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from drinks
+        for drink in session.drinks {
+            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from food
+        for food in session.food {
+            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        // Add locations from water
+        for water in session.water {
+            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+                uniqueLocationNames.insert(name)
+            }
+        }
+        
+        return uniqueLocationNames.count
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Big BAC Display
-            VStack(spacing: 8) {
-                Text("Current BAC")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            VStack {
+//                Text("Current BAC")
+//                    .font(.subheadline)
+//                    .foregroundStyle(.secondary)
                 
                 Text(String(format: "%.3f%%", currentBAC))
                     .font(.system(size: 60, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(currentBAC))
                 
-                Text(bacStatus(currentBAC))
+                Text("BAC: \(bacStatus(currentBAC))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 
@@ -259,14 +293,13 @@ struct ActiveSessionView: View {
                     .padding(.top, 4)
                 }
             }
-            .padding(.vertical, 30)
             .frame(maxWidth: .infinity)
             .background(Color(.systemGroupedBackground))
             
             // Quick stats
             HStack(spacing: 20) {
                 StatBox(title: "Drinks", value: "\(session.drinks.count)")
-                StatBox(title: "Locations", value: "\(session.locations.count)")
+                StatBox(title: "Locations", value: "\(uniqueLocationsCount)")
                 StatBox(title: "Duration", value: durationText())
             }
             .padding()
@@ -361,7 +394,7 @@ struct ActiveSessionView: View {
             .padding()
         }
         .sheet(isPresented: $showingAddDrink) {
-            AddDrinkView(session: session)
+            AddDrinkView(session: session, locationTracker: locationTracker)
         }
         .sheet(isPresented: $showingAddOther) {
             AddOtherView(session: session)
@@ -421,9 +454,6 @@ struct ActiveSessionView: View {
         locationTracker.onInitialPermissionGranted = { [weak locationTracker] in
             guard let locationTracker = locationTracker else { return }
             
-            // Tell the tracker to skip the next automatic location since we'll log it manually
-            locationTracker.skipNextAutomaticLocation = true
-            
             // Log initial location after permission is granted
             Task {
                 // Wait for location to be acquired
@@ -431,10 +461,6 @@ struct ActiveSessionView: View {
                 
                 guard let location = locationTracker.currentLocation else {
                     print("⚠️ No location available after permission granted")
-                    // Reset the skip flag if we couldn't get a location
-                    await MainActor.run {
-                        locationTracker.skipNextAutomaticLocation = false
-                    }
                     return
                 }
                 
@@ -442,7 +468,6 @@ struct ActiveSessionView: View {
                 await MainActor.run {
                     guard session.locations.isEmpty else {
                         print("✅ Session already has locations")
-                        locationTracker.skipNextAutomaticLocation = false
                         return
                     }
                 }
@@ -474,9 +499,6 @@ struct ActiveSessionView: View {
             // Permission already granted - start tracking immediately
             locationTracker.startTracking()
             
-            // Tell the tracker to skip the next automatic location since we'll log it manually
-            locationTracker.skipNextAutomaticLocation = true
-            
             // Log initial location after a short delay to ensure we have a location
             Task {
                 // Wait a moment for location to be acquired
@@ -484,14 +506,12 @@ struct ActiveSessionView: View {
                 
                 guard let location = locationTracker.currentLocation else {
                     print("⚠️ No location available yet")
-                    locationTracker.skipNextAutomaticLocation = false
                     return
                 }
                 
                 // Check if we already have a location for this session
                 guard session.locations.isEmpty else {
                     print("✅ Session already has locations")
-                    locationTracker.skipNextAutomaticLocation = false
                     return
                 }
                 
@@ -562,17 +582,50 @@ struct ActiveSessionView: View {
     
     private func addPizza() {
         withAnimation {
-            let pizza = FoodEntry(foodType: "Pizza", quantity: 1)
+            let location = locationTracker.currentLocation
+            let pizza = FoodEntry(
+                foodType: "Pizza",
+                quantity: 1,
+                locationName: location != nil ? "Loading..." : nil,
+                latitude: location?.coordinate.latitude,
+                longitude: location?.coordinate.longitude
+            )
             session.food.append(pizza)
             modelContext.insert(pizza)
+            
+            // Fetch the actual venue name asynchronously
+            if let location = location {
+                Task {
+                    let venueName = await locationTracker.getBestVenueName(for: location)
+                    await MainActor.run {
+                        pizza.locationName = venueName
+                    }
+                }
+            }
         }
     }
     
     private func addWater() {
         withAnimation {
-            let water = WaterEntry(volumeOz: 8.0)
+            let location = locationTracker.currentLocation
+            let water = WaterEntry(
+                volumeOz: 8.0,
+                locationName: location != nil ? "Loading..." : nil,
+                latitude: location?.coordinate.latitude,
+                longitude: location?.coordinate.longitude
+            )
             session.water.append(water)
             modelContext.insert(water)
+            
+            // Fetch the actual venue name asynchronously
+            if let location = location {
+                Task {
+                    let venueName = await locationTracker.getBestVenueName(for: location)
+                    await MainActor.run {
+                        water.locationName = venueName
+                    }
+                }
+            }
         }
     }
     
@@ -679,9 +732,23 @@ struct TimelineRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.headline)
-                Text(item.timestamp, style: .time)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                
+                HStack(spacing: 4) {
+                    Text(item.timestamp, style: .time)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    
+                    // Show location if available (but not for location entries themselves)
+                    if let locationName = itemLocationName, !locationName.isEmpty {
+                        Text("•")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(locationName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
             
             Spacer()
@@ -693,6 +760,19 @@ struct TimelineRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+    
+    var itemLocationName: String? {
+        switch item.type {
+        case .drink(let drink):
+            return drink.locationName
+        case .food(let food):
+            return food.locationName
+        case .water(let water):
+            return water.locationName
+        case .location, .other:
+            return nil // Don't show location for location entries or other entries
+        }
     }
     
     var icon: String {
@@ -755,6 +835,7 @@ struct AddDrinkView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let session: DrinkingSession
+    let locationTracker: LocationTracker
     
     @State private var drinkType = "Beer"
     @State private var name = ""
@@ -845,14 +926,28 @@ struct AddDrinkView: View {
     }
     
     private func addDrink() {
+        let location = locationTracker.currentLocation
         let drink = DrinkEntry(
             drinkType: drinkType,
             name: name.isEmpty ? nil : name,
             alcoholContent: alcoholContent,
-            volumeOz: volumeOz
+            volumeOz: volumeOz,
+            locationName: location != nil ? "Loading..." : nil,
+            latitude: location?.coordinate.latitude,
+            longitude: location?.coordinate.longitude
         )
         session.drinks.append(drink)
         modelContext.insert(drink)
+        
+        // Fetch the actual venue name asynchronously
+        if let location = location {
+            Task {
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                await MainActor.run {
+                    drink.locationName = venueName
+                }
+            }
+        }
     }
 }
 

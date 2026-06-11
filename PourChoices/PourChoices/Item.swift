@@ -129,14 +129,25 @@ final class FoodEntry {
     var timestamp: Date
     var foodType: String // "Pizza", "Burger", etc.
     var quantity: Int // Number of slices/items
+    var locationName: String? // Where you had this food
+    var latitude: Double? // Location coordinates
+    var longitude: Double? // Location coordinates
     
     var session: DrinkingSession?
     
-    init(timestamp: Date = Date(), foodType: String, quantity: Int = 1) {
+    init(timestamp: Date = Date(), foodType: String, quantity: Int = 1, locationName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = UUID()
         self.timestamp = timestamp
         self.foodType = foodType
         self.quantity = quantity
+        self.locationName = locationName
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+    
+    var coordinate: CLLocationCoordinate2D? {
+        guard let lat = latitude, let lon = longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 }
 
@@ -146,13 +157,24 @@ final class WaterEntry {
     var id: UUID
     var timestamp: Date
     var volumeOz: Double
+    var locationName: String? // Where you had this water
+    var latitude: Double? // Location coordinates
+    var longitude: Double? // Location coordinates
     
     var session: DrinkingSession?
     
-    init(timestamp: Date = Date(), volumeOz: Double = 8.0) {
+    init(timestamp: Date = Date(), volumeOz: Double = 8.0, locationName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = UUID()
         self.timestamp = timestamp
         self.volumeOz = volumeOz
+        self.locationName = locationName
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+    
+    var coordinate: CLLocationCoordinate2D? {
+        guard let lat = latitude, let lon = longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 }
 
