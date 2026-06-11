@@ -70,7 +70,7 @@ struct ContentView: View {
                     // Past sessions list
                     if !sessions.isEmpty {
                         List {
-                            Section("Past Parties") {
+                            Section("Past Sessions") {
                                 ForEach(sessions.filter { !$0.isActive }) { session in
                                     NavigationLink {
                                         SessionDetailView(session: session, userProfile: userProfile)
@@ -116,7 +116,7 @@ struct ContentView: View {
                     // Past sessions list
                     if !sessions.isEmpty {
                         List {
-                            Section("Past Parties") {
+                            Section("Past Sessions") {
                                 ForEach(sessions.filter { !$0.isActive }) { session in
                                     NavigationLink {
                                         SessionDetailView(session: session, userProfile: userProfile)
@@ -418,7 +418,6 @@ struct ActiveSessionView: View {
     
     private func bacStatus(_ bac: Double) -> String {
         switch bac {
-        case 0: return "Designated driver"
         case 0..<0.01: return "Too sober"
         case 0.01..<0.02: return "This is just juice"
         case 0.02..<0.03: return "Just warming up"
@@ -884,6 +883,15 @@ struct SessionDetailView: View {
 // MARK: - Profile Settings View
 struct ProfileSettingsView: View {
     @Bindable var profile: UserProfile
+    @FocusState private var isWeightFocused: Bool
+    
+    var heightFeet: Int {
+        Int(profile.heightInches) / 12
+    }
+    
+    var heightInches: Int {
+        Int(profile.heightInches) % 12
+    }
     
     var body: some View {
         Form {
@@ -903,17 +911,62 @@ struct ProfileSettingsView: View {
                 }
                 
                 HStack {
+                    Text("Height")
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Picker("", selection: Binding(
+                            get: { heightFeet },
+                            set: { newFeet in
+                                profile.heightInches = Double(newFeet * 12 + heightInches)
+                            }
+                        )) {
+                            ForEach(4...7, id: \.self) { feet in
+                                Text("\(feet)'").tag(feet)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .foregroundStyle(.white)
+                        
+                        Picker("", selection: Binding(
+                            get: { heightInches },
+                            set: { newInches in
+                                profile.heightInches = Double(heightFeet * 12 + newInches)
+                            }
+                        )) {
+                            ForEach(0...11, id: \.self) { inches in
+                                Text("\(inches)\"").tag(inches)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .foregroundStyle(.white)
+                    }
+                }
+                
+                HStack {
                     Text("Weight (lbs)")
                     Spacer()
                     TextField("Weight", value: $profile.weight, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 100)
+                        .focused($isWeightFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            isWeightFocused = false
+                        }
                 }
                 
-                Picker("Sex", selection: $profile.sex) {
-                    Text("Male").tag("Male")
-                    Text("Female").tag("Female")
+                HStack {
+                    Text("Sex")
+                    Spacer()
+                    Picker("Sex", selection: $profile.sex) {
+                        Text("Male").tag("Male")
+                        Text("Female").tag("Female")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
                 }
             }
             
@@ -935,6 +988,10 @@ struct ProfileSettingsView: View {
         }
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture {
+            isWeightFocused = false
+        }
     }
 }
 
@@ -1048,11 +1105,17 @@ struct OnboardingView: View {
     @Bindable var profile: UserProfile
     
     @State private var weight: Double = 150
+    @State private var heightFeet: Int = 5
+    @State private var heightInches: Int = 8
     @State private var sex: String = "Male"
     @FocusState private var focusedField: OnboardingField?
     
     enum OnboardingField {
         case weight
+    }
+    
+    var totalHeightInches: Double {
+        Double(heightFeet * 12 + heightInches)
     }
     
     var body: some View {
@@ -1087,6 +1150,33 @@ struct OnboardingView: View {
                                     Spacer()
                                     Text("\(profile.age)")
                                         .foregroundStyle(.secondary)
+                                }
+                                
+                                Divider()
+                                
+                                HStack {
+                                    Text("Height")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    HStack(spacing: 8) {
+                                        Picker("", selection: $heightFeet) {
+                                            ForEach(4...7, id: \.self) { feet in
+                                                Text("\(feet)'").tag(feet)
+                                            }
+                                        }
+                                        .pickerStyle(.menu)
+                                        .labelsHidden()
+                                        .foregroundStyle(.white)
+                                        
+                                        Picker("", selection: $heightInches) {
+                                            ForEach(0...11, id: \.self) { inches in
+                                                Text("\(inches)\"").tag(inches)
+                                            }
+                                        }
+                                        .pickerStyle(.menu)
+                                        .labelsHidden()
+                                        .foregroundStyle(.white)
+                                    }
                                 }
                                 
                                 Divider()
@@ -1172,6 +1262,7 @@ struct OnboardingView: View {
     private func saveAndContinue() {
         focusedField = nil
         profile.weight = weight
+        profile.heightInches = totalHeightInches
         profile.sex = sex
         profile.hasCompletedOnboarding = true
         dismiss()
@@ -1191,6 +1282,7 @@ struct OnboardingView: View {
     // Create a pre-configured profile
     let profile = UserProfile(
         weight: 170,
+        heightInches: 70,
         sex: "Male",
         birthdate: Calendar.current.date(byAdding: .year, value: -25, to: Date()),
         hasCompletedAgeVerification: true,

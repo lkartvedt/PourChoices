@@ -160,13 +160,15 @@ final class WaterEntry {
 @Model
 final class UserProfile {
     var weight: Double // in lbs
+    var heightInches: Double // height in inches
     var sex: String // "Male" or "Female" (affects BAC calculation)
     var birthdate: Date? // User's birthdate for age verification
     var hasCompletedAgeVerification: Bool // Track if they've passed age verification
     var hasCompletedOnboarding: Bool // Track if they've gone through initial setup
     
-    init(weight: Double = 150, sex: String = "Male", birthdate: Date? = nil, hasCompletedAgeVerification: Bool = false, hasCompletedOnboarding: Bool = false) {
+    init(weight: Double = 150, heightInches: Double = 68, sex: String = "Male", birthdate: Date? = nil, hasCompletedAgeVerification: Bool = false, hasCompletedOnboarding: Bool = false) {
         self.weight = weight
+        self.heightInches = heightInches
         self.sex = sex
         self.birthdate = birthdate
         self.hasCompletedAgeVerification = hasCompletedAgeVerification
