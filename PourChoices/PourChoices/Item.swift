@@ -49,6 +49,7 @@ final class DrinkEntry {
     var id: UUID
     var timestamp: Date
     var drinkType: String // "Beer", "Wine", "Shot", "Cocktail", etc.
+    var subtype: String? // Optional subtype e.g. "Light Beer", "Rosé"
     var name: String? // Optional specific name
     var alcoholContent: Double // % ABV
     var volumeOz: Double // Volume in oz
@@ -58,10 +59,11 @@ final class DrinkEntry {
     
     var session: DrinkingSession?
     
-    init(timestamp: Date = Date(), drinkType: String, name: String? = nil, alcoholContent: Double, volumeOz: Double, locationName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
+    init(timestamp: Date = Date(), drinkType: String, subtype: String? = nil, name: String? = nil, alcoholContent: Double, volumeOz: Double, locationName: String? = nil, latitude: Double? = nil, longitude: Double? = nil) {
         self.id = UUID()
         self.timestamp = timestamp
         self.drinkType = drinkType
+        self.subtype = subtype
         self.name = name
         self.alcoholContent = alcoholContent
         self.volumeOz = volumeOz

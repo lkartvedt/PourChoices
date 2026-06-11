@@ -796,6 +796,17 @@ struct ActiveSessionView: View {
     }
 }
 
+func drinkAccentAsset(for drinkType: String) -> String {
+    switch drinkType {
+    case "Beer":        return "BeerAccent"
+    case "Wine":        return "WineAccent"
+    case "Shot":        return "ShotAccent"
+    case "Cocktail":    return "CocktailAccent"
+    case "Mixed Drink": return "MixedDrinkAccent"
+    default:            return "OtherAccent"
+    }
+}
+
 struct TimelineItem {
     let id: String
     let timestamp: Date
@@ -815,10 +826,18 @@ struct TimelineRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
-                .frame(width: 30)
+            Group {
+                if case .drink(let drink) = item.type {
+                    Image(drinkAccentAsset(for: drink.drinkType))
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundStyle(color)
+                }
+            }
+            .frame(width: 28, height: 28)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -1237,6 +1256,7 @@ struct AddDrinkView: View {
         let location = locationTracker.currentLocation
         let drink = DrinkEntry(
             drinkType: drinkType,
+            subtype: selectedSubtype == "None" ? nil : selectedSubtype,
             name: name.isEmpty ? nil : name,
             alcoholContent: alcoholContent,
             volumeOz: volumeOz,
@@ -1393,6 +1413,15 @@ struct PastSessionRow: View {
         return uniqueLocationNames.count
     }
     
+    struct TightLabelStyle: LabelStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            HStack(spacing: 4) {
+                configuration.icon
+                configuration.title
+            }
+        }
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(session.startTime, style: .date)
@@ -1405,6 +1434,7 @@ struct PastSessionRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            .labelStyle(TightLabelStyle())
             
             Text("Peak BAC: \(String(format: "%.3f%%", peakBAC))")
                 .font(.caption)
@@ -1525,6 +1555,13 @@ struct SessionDetailView: View {
             GroupBox {
                 VStack(spacing: 12) {
                     HStack {
+                        Text("Total Drinks")
+                        Spacer()
+                        Text("\(session.drinks.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    HStack {
                         Text("Start")
                         Spacer()
                         Text(session.startTime, format: .dateTime)
@@ -1548,13 +1585,6 @@ struct SessionDetailView: View {
                     }
                     Divider()
                     HStack {
-                        Text("Total Drinks")
-                        Spacer()
-                        Text("\(session.drinks.count)")
-                            .foregroundStyle(.secondary)
-                    }
-                    Divider()
-                    HStack {
                         Text("Locations")
                         Spacer()
                         Text("\(session.locations.count)")
@@ -1574,36 +1604,46 @@ struct SessionDetailView: View {
                     .padding(.horizontal)
                 ForEach(session.drinks.sorted(by: { $0.timestamp < $1.timestamp })) { drink in
                     GroupBox {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "wineglass.fill")
-                                    .foregroundStyle(.blue)
-                                Text(drink.name ?? drink.drinkType)
-                                    .font(.headline)
-                                Spacer()
-                                Text(String(format: "%.2f std", drink.standardDrinks))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Text("\(String(format: "%.1f", drink.alcoholContent))% ABV • \(String(format: "%.1f", drink.volumeOz)) oz")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text(drink.timestamp, style: .time)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if let locationName = drink.locationName {
+                        HStack {
+                            Image(drinkAccentAsset(for: drink.drinkType))
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 48, height: 48)
+                            
+                            VStack(alignment: .leading, spacing: 8) {
                                 HStack {
-                                    Image(systemName: "location.fill")
-                                        .font(.caption2)
-                                        .foregroundStyle(.green)
-                                    Text(locationName)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text([drink.drinkType, drink.subtype].compactMap { $0 }.joined(separator: " - "))
+                                            .font(.headline)
+                                        if let customName = drink.name {
+                                            Text(customName)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                HStack {
+                                    Text("\(String(format: "%.1f", drink.alcoholContent))% ABV • \(String(format: "%.1f", drink.volumeOz)) oz • \(String(format: "%.2f std", drink.standardDrinks))")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                                if let locationName = drink.locationName {
+                                    HStack {
+                                        Image(systemName: "location.fill")
+                                            .font(.caption2)
+                                            .foregroundStyle(.green)
+                                        Text(locationName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(drink.timestamp.formatted(date: .omitted, time: .shortened))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
+                            
                         }
                     }
                     .padding(.horizontal)
