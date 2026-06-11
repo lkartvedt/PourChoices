@@ -40,11 +40,11 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 if let session = activeSession {
                     // Show a card to navigate into the active session
-                    VStack(spacing: 20) {
+                    VStack(spacing: 10) {
                         Image("Cheers")
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 140, height: 140)
+                            .frame(width: 180, height: 180)
                             .padding(.top, 30)
                         
                         Text("Active Session")
