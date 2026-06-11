@@ -217,7 +217,7 @@ struct ActiveSessionView: View {
     @State private var showLocationDeniedAlert = false
     
     var currentBAC: Double {
-        BACCalculator.estimateBAC(
+        let bac = BACCalculator.estimateBAC(
             drinks: session.drinks,
             food: session.food,
             water: session.water,
@@ -225,6 +225,13 @@ struct ActiveSessionView: View {
             sex: userProfile.sex,
             at: Date()
         )
+        
+        // Update peak BAC if this is higher
+        if bac > session.peakBAC {
+            session.peakBAC = bac
+        }
+        
+        return bac
     }
     
     var canLogLocation: Bool {
@@ -672,12 +679,38 @@ struct ActiveSessionView: View {
     }
     
     private func endSession() {
-        locationTracker.stopTracking()
-        withAnimation {
-            session.endTime = Date()
+        // Log final location before ending
+        if let location = locationTracker.currentLocation {
+            Task {
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                
+                await MainActor.run {
+                    let stop = LocationStop(
+                        locationName: venueName,
+                        latitude: location.coordinate.latitude,
+                        longitude: location.coordinate.longitude
+                    )
+                    session.locations.append(stop)
+                    modelContext.insert(stop)
+                    
+                    // Stop tracking and end session
+                    locationTracker.stopTracking()
+                    withAnimation {
+                        session.endTime = Date()
+                    }
+                    
+                    // Navigate back to home
+                    dismiss()
+                }
+            }
+        } else {
+            // No location available, just end session
+            locationTracker.stopTracking()
+            withAnimation {
+                session.endTime = Date()
+            }
+            dismiss()
         }
-        // Navigate back to home
-        dismiss()
     }
     
     private func combinedTimeline() -> [TimelineItem] {
@@ -1093,15 +1126,7 @@ struct PastSessionRow: View {
     let userProfile: UserProfile
     
     var peakBAC: Double {
-        guard let lastDrink = session.drinks.max(by: { $0.timestamp < $1.timestamp }) else {
-            return 0
-        }
-        return BACCalculator.estimateBAC(
-            drinks: session.drinks,
-            weight: userProfile.weight,
-            sex: userProfile.sex,
-            at: lastDrink.timestamp
-        )
+        session.peakBAC
     }
     
     var body: some View {
@@ -1145,17 +1170,7 @@ struct SessionDetailView: View {
     )
     
     var peakBAC: Double {
-        guard let lastDrink = session.drinks.max(by: { $0.timestamp < $1.timestamp }) else {
-            return 0
-        }
-        return BACCalculator.estimateBAC(
-            drinks: session.drinks,
-            food: session.food,
-            water: session.water,
-            weight: userProfile.weight,
-            sex: userProfile.sex,
-            at: lastDrink.timestamp
-        )
+        session.peakBAC
     }
     
     var sortedLocations: [LocationStop] {

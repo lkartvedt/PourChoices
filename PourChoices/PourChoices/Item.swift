@@ -16,6 +16,7 @@ final class DrinkingSession {
     var startTime: Date
     var endTime: Date?
     var notes: String?
+    var peakBAC: Double = 0.0 // Track the highest BAC recorded during this session
     
     @Relationship(deleteRule: .cascade, inverse: \DrinkEntry.session)
     var drinks: [DrinkEntry] = []
