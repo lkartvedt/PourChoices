@@ -885,6 +885,14 @@ struct AddDrinkView: View {
     @State private var alcoholContent = 5.0
     @State private var volumeOz = 12.0
     
+    @FocusState private var focusedField: AddDrinkField?
+    
+    enum AddDrinkField {
+        case name
+        case abv
+        case volume
+    }
+    
     let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
     
     var body: some View {
@@ -902,6 +910,11 @@ struct AddDrinkView: View {
                     }
                     
                     TextField("Name (optional)", text: $name)
+                        .focused($focusedField, equals: .name)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            focusedField = nil
+                        }
                 }
                 
                 Section("Details") {
@@ -912,6 +925,7 @@ struct AddDrinkView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
+                            .focused($focusedField, equals: .abv)
                     }
                     
                     HStack {
@@ -921,6 +935,7 @@ struct AddDrinkView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 80)
+                            .focused($focusedField, equals: .volume)
                     }
                 }
                 
@@ -930,18 +945,26 @@ struct AddDrinkView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Drink")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        focusedField = nil
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        focusedField = nil
                         addDrink()
                         dismiss()
                     }
                 }
+            }
+            .onTapGesture {
+                focusedField = nil
             }
         }
     }
@@ -1003,6 +1026,12 @@ struct AddOtherView: View {
     @State private var type = "Zyn"
     @State private var notes = ""
     
+    @FocusState private var focusedField: AddOtherField?
+    
+    enum AddOtherField {
+        case notes
+    }
+    
     let types = ["Zyn", "Cigarette", "Vape", "Other"]
     
     var body: some View {
@@ -1019,20 +1048,33 @@ struct AddOtherView: View {
                 Section {
                     TextField("Notes (optional)", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
+                        .focused($focusedField, equals: .notes)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            focusedField = nil
+                        }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Entry")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        focusedField = nil
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        focusedField = nil
                         addEntry()
                         dismiss()
                     }
                 }
+            }
+            .onTapGesture {
+                focusedField = nil
             }
         }
     }
