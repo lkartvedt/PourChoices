@@ -899,7 +899,7 @@ struct TimelineRow: View {
         switch item.type {
         case .drink: return .blue
         case .location: return .green
-        case .nicotine: return .orange
+        case .nicotine: return .gray
         case .food: return Color(.systemOrange)
         case .water: return Color(.systemCyan)
         }
@@ -1285,84 +1285,186 @@ struct AddOtherView: View {
     @Environment(\.modelContext) private var modelContext
     let session: DrinkingSession
     
-    @State private var selectedType = "Zyn - 3mg"
+    // Persists preferred Zyn strength across sessions
+    @AppStorage("preferredZynMg") private var preferredZynMg: Double = 3.0
+    
+    @State private var selectedType = "Zyn"
     @State private var nicotineMg = 3.0
+    @State private var zynStrength: Double = 3.0  // 3 or 6
     
-    @FocusState private var focusedField: AddOtherField?
+    @FocusState private var isMgFocused: Bool
     
-    enum AddOtherField {
-        case nicotine
+    struct NicotineType {
+        let name: String
+        let asset: String
+        let defaultMg: Double
+        let label: String
     }
     
-    let nicotineTypes: [(name: String, defaultMg: Double)] = [
-        ("Zyn - 3mg", 3.0),
-        ("Zyn - 6mg", 6.0),
-        ("Vape", 3.0),
-        ("Cigarette", 2.0),
-        ("Cigar", 10.0),
-        ("Nicotine gum", 3.0),
-        ("Dip", 5.0)
+    let nicotineTypes: [NicotineType] = [
+        NicotineType(name: "Zyn",        asset: "Zyn3",  defaultMg: 3.0,  label: "Zyn"),
+        NicotineType(name: "Vape",       asset: "Vape",  defaultMg: 3.0,  label: "Vape"),
+        NicotineType(name: "Cigarette",  asset: "Cig",   defaultMg: 2.0,  label: "Cigarette"),
+        NicotineType(name: "Cigar",      asset: "Cigar", defaultMg: 10.0, label: "Cigar"),
+        NicotineType(name: "Gum",        asset: "Gum",   defaultMg: 3.0,  label: "Gum"),
+        NicotineType(name: "Dip",        asset: "Dip",   defaultMg: 5.0,  label: "Dip"),
     ]
+    
+    // The display name logged — includes strength for Zyn
+    var loggedTypeName: String {
+        selectedType == "Zyn" ? "Zyn - \(Int(zynStrength))mg" : selectedType
+    }
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Type") {
-                    Picker("Type", selection: $selectedType) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Type grid
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
                         ForEach(nicotineTypes, id: \.name) { type in
-                            Text(type.name).tag(type.name)
+                            Button(action: {
+                                selectedType = type.name
+                                if type.name == "Zyn" {
+                                    zynStrength = preferredZynMg
+                                    nicotineMg = preferredZynMg
+                                } else {
+                                    nicotineMg = type.defaultMg
+                                }
+                            }) {
+                                VStack(spacing: 8) {
+                                    Image(selectedType == "Zyn" && type.name == "Zyn" ? (zynStrength == 6 ? "Zyn6" : "Zyn3") : type.asset)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 56, height: 56)
+                                    Text(type.label)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(selectedType == type.name ? Color.black : Color.primary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .fill(selectedType == type.name ? Color.accent : Color(.secondarySystemGroupedBackground))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(selectedType == type.name ? Color.accent : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.menu)
-                    .onChange(of: selectedType) { oldValue, newValue in
-                        updateDefaults(for: newValue)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    
+                    // Zyn strength selector — only when Zyn is selected
+                    if selectedType == "Zyn" {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Strength")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                                .padding(.bottom, 6)
+                            
+                            HStack(spacing: 12) {
+                                ForEach([3.0, 6.0], id: \.self) { mg in
+                                    Button(action: {
+                                        zynStrength = mg
+                                        nicotineMg = mg
+                                    }) {
+                                        Text("\(Int(mg))mg")
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .foregroundStyle(zynStrength == mg ? Color.black : Color.primary)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 10)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 10)
+                                                    .fill(zynStrength == mg ? Color.accent : Color(.secondarySystemGroupedBackground))
+                                            )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal)
+                            
+                            // Set as default
+                            Button(action: {
+                                preferredZynMg = zynStrength
+                            }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: preferredZynMg == zynStrength ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.accent : Color.secondary)
+                                    Text(preferredZynMg == zynStrength ? "Default strength" : "Set as my default")
+                                        .font(.caption)
+                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.primary : Color.secondary)
+                                }
+                                .padding(.horizontal)
+                                .padding(.top, 10)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    // Details section
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Details")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+                            .padding(.bottom, 6)
+                        
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text("Nicotine (mg)")
+                                Spacer()
+                                TextField("mg", value: $nicotineMg, format: .number)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                    .focused($isMgFocused)
+                            }
+                            .padding()
+                        }
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
                     }
                 }
-                
-                Section("Details") {
-                    HStack {
-                        Text("Nicotine (mg)")
-                        Spacer()
-                        TextField("mg", value: $nicotineMg, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .focused($focusedField, equals: .nicotine)
-                    }
-                }
+                .padding(.bottom, 24)
             }
+            .background(Color(.systemGroupedBackground))
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Add Nicotine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        focusedField = nil
+                        isMgFocused = false
                         dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        focusedField = nil
+                        isMgFocused = false
                         addEntry()
                         dismiss()
                     }
                 }
             }
             .onTapGesture {
-                focusedField = nil
+                isMgFocused = false
+            }
+            .onAppear {
+                // Apply saved Zyn preference on first load
+                zynStrength = preferredZynMg
+                nicotineMg = preferredZynMg
             }
         }
     }
     
-    private func updateDefaults(for type: String) {
-        if let nicType = nicotineTypes.first(where: { $0.name == type }) {
-            nicotineMg = nicType.defaultMg
-        }
-    }
-    
     private func addEntry() {
-        let entry = NicotineEntry(type: selectedType, nicotineMg: nicotineMg, notes: nil)
+        let entry = NicotineEntry(type: loggedTypeName, nicotineMg: nicotineMg, notes: nil)
         session.nicotine.append(entry)
         modelContext.insert(entry)
     }
@@ -1696,7 +1798,7 @@ struct SessionDetailView: View {
     @ViewBuilder private var otherEntriesSection: some View {
         if !session.nicotine.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Other (\(session.nicotine.count))")
+                Text("Nicotine (\(session.nicotine.count))")
                     .font(.headline)
                     .padding(.horizontal)
                 ForEach(session.nicotine.sorted(by: { $0.timestamp < $1.timestamp })) { entry in
@@ -1704,7 +1806,7 @@ struct SessionDetailView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Image(systemName: "smoke")
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(.gray)
                                 Text(entry.type)
                                     .font(.headline)
                                 Spacer()
