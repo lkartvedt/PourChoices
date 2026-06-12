@@ -2098,7 +2098,7 @@ struct ProfileSettingsView: View {
             
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("Alcoholism", systemImage: "staroflife.circle.fill")
+                    Label("Get Help", systemImage: "staroflife.circle.fill")
                         .foregroundStyle(.red)
                         .font(.headline)
                     
@@ -2255,8 +2255,9 @@ struct QuickAddButtonPickerView: View {
                          currentConfig.subtype == nil
 
         Button {
-            if isFocused {
-                // Second tap on same category = select the category itself
+            let subtypes = AddDrinkView.subtypes[category] ?? []
+            if subtypes.isEmpty {
+                // No subtypes — select directly
                 let defaults = categoryDefaults(for: category)
                 select(QuickAddButtonConfig(
                     kind: .drink, category: category, subtype: nil,
@@ -2264,18 +2265,8 @@ struct QuickAddButtonPickerView: View {
                     nicotineMg: nil, displayLabel: category, assetName: asset
                 ))
             } else {
-                // First tap = show subtypes panel (or select immediately if no subtypes)
-                let subtypes = AddDrinkView.subtypes[category] ?? []
-                if subtypes.isEmpty {
-                    let defaults = categoryDefaults(for: category)
-                    select(QuickAddButtonConfig(
-                        kind: .drink, category: category, subtype: nil,
-                        abv: defaults.abv, volumeOz: defaults.oz,
-                        nicotineMg: nil, displayLabel: category, assetName: asset
-                    ))
-                } else {
-                    focusedCategory = category
-                }
+                // Toggle subtype panel
+                focusedCategory = isFocused ? nil : category
             }
         } label: {
             ZStack(alignment: .topTrailing) {
@@ -2318,8 +2309,41 @@ struct QuickAddButtonPickerView: View {
         let asset = assetName(for: category)
 
         VStack(spacing: 0) {
+            // "None" row — selects the bare category with no subtype
+            let defaults = categoryDefaults(for: category)
+            Button {
+                select(QuickAddButtonConfig(
+                    kind: .drink, category: category, subtype: nil,
+                    abv: defaults.abv, volumeOz: defaults.oz,
+                    nicotineMg: nil, displayLabel: category, assetName: asset
+                ))
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("None")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                        Text("Default \(category)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if currentConfig.kind == .drink &&
+                       currentConfig.category == category &&
+                       currentConfig.subtype == nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.accent)
+                            .font(.title3)
+                    }
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+            }
+            .buttonStyle(.plain)
+
             ForEach(Array(subtypes.enumerated()), id: \.element.name) { index, sub in
-                if index > 0 { Divider().padding(.leading, 16) }
+                Divider().padding(.leading, 16)
                 Button {
                     select(QuickAddButtonConfig(
                         kind: .drink, category: category, subtype: sub.name,

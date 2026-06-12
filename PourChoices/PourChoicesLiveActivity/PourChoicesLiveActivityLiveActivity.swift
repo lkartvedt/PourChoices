@@ -21,55 +21,24 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 .activitySystemActionForegroundColor(Color.white)
 
         } dynamicIsland: { context in
-            // ----------------------------------------------------------------
-            // DYNAMIC ISLAND presentations
-            // ----------------------------------------------------------------
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(String(format: "%.3f%%", context.state.peakBAC))
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(bacColor(context.state.peakBAC))
-                        Text("peak BAC")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 4)
+                    Text(String(format: "%.3f%%", context.state.peakBAC))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(bacColor(context.state.peakBAC))
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        countdownText(peakBACDate: context.state.peakBACDate)
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(bacColor(context.state.peakBAC))
-                        Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.trailing, 4)
-                }
-
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 12) {
-                        quickAddButton(config: context.state.button1, intent: QuickAddButton1Intent())
-                        quickAddButton(config: context.state.button2, intent: QuickAddButton2Intent())
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 4)
+                    Spacer().frame(height: 0)
                 }
-
             } compactLeading: {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
-                    .padding(.leading, 4)
-
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
             } compactTrailing: {
-                countdownText(peakBACDate: context.state.peakBACDate)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 4)
-
+                EmptyView()
             } minimal: {
                 Text(String(format: "%.2f", context.state.peakBAC))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
