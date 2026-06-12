@@ -37,17 +37,17 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                     .padding(.leading, 4)
                 }
 
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("in \(Int(context.state.timeToBAC)) min")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(bacColor(context.state.peakBAC))
-                        Text("\(context.state.drinkCount) drinks")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.trailing, 4)
-                }
+//                DynamicIslandExpandedRegion(.trailing) {
+//                    VStack(alignment: .trailing, spacing: 2) {
+//                        Text("in \(Int(context.state.timeToBAC)) min")
+//                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+//                            .foregroundStyle(bacColor(context.state.peakBAC))
+//                        Text("\(context.state.drinkCount) drinks")
+//                            .font(.caption2)
+//                            .foregroundStyle(.secondary)
+//                    }
+//                    .padding(.trailing, 4)
+//                }
 
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 12) {
@@ -59,16 +59,16 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 }
 
             } compactLeading: {
-                Text(String(format: "%.3f", context.state.peakBAC))
+                Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
                     .padding(.leading, 4)
 
             } compactTrailing: {
-                Text("\(Int(context.state.timeToBAC))m")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 4)
+//                Text("\(Int(context.state.timeToBAC))m")
+//                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+//                    .foregroundStyle(.secondary)
+//                    .padding(.trailing, 4)
 
             } minimal: {
                 Text(String(format: "%.2f", context.state.peakBAC))
@@ -90,9 +90,9 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
-                Text("in \(Int(context.state.timeToBAC)) min")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(bacColor(context.state.peakBAC))
+//                Text("in \(Int(context.state.timeToBAC)) min")
+//                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+//                    .foregroundStyle(bacColor(context.state.peakBAC))
                 Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -101,7 +101,7 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             Spacer()
 
             // Right: two square buttons side by side
-            HStack(spacing: 10) {
+            HStack(spacing: 20) {
                 quickAddButton(config: context.state.button1, intent: QuickAddButton1Intent())
                 quickAddButton(config: context.state.button2, intent: QuickAddButton2Intent())
             }
@@ -116,23 +116,25 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
     private func quickAddButton<I: AppIntent>(config: QuickAddButtonConfig, intent: I) -> some View {
         
         Button(intent: intent) {
-            VStack(spacing: 5) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.accent)
+            VStack {
+                VStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+                .frame(width: 66, height: 66)
+                .background(
+                    Circle()
+                        .fill(Color.accent)
+                )
                 HStack(spacing: 3) {
                     Text(config.displayLabel)
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
-                .foregroundStyle(Color.black)
+                .foregroundStyle(Color.white)
             }
-            .frame(width: 76, height: 76)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white)
-            )
         }
         .buttonStyle(.plain)
     }

@@ -445,7 +445,7 @@ public final class BACSolver {
             if stepIndex % sampleEverySteps == 0 {
                 let bac = C / 10.0
                 curve.append(BACSample(time: t * Self.secondsPerMinute, bac: bac, ka: ka(forS: S)))
-                if bac > peakBAC { peakBAC = bac; peakTimeMin = t }
+                if bac > peakBAC && t > (sorted.last?.time ?? 0)/Self.secondsPerMinute { peakBAC = bac; peakTimeMin = t }
             }
             stepIndex += 1
 
@@ -463,7 +463,7 @@ public final class BACSolver {
             t += dtMin
         }
         
-        let almostPeakTime = (curve.first(where: { $0.bac >= 0.9*peakBAC })?.time ?? peakTimeMin) / Self.secondsPerMinute
+        let almostPeakTime = (curve.first(where: { $0.bac >= 0.9*peakBAC && $0.time > (sorted.last?.time ?? 0)/Self.secondsPerMinute})?.time ?? peakTimeMin) / Self.secondsPerMinute
 
         return BACResult(curve: curve,
                          peakBAC: peakBAC,
