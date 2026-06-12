@@ -1938,6 +1938,8 @@ struct ProfileSettingsView: View {
     @State private var showingButton1Picker = false
     @State private var showingButton2Picker = false
     
+    @Environment(\.openURL) private var openURL
+    
     var heightFeet: Int {
         Int(profile.heightInches) / 12
     }
@@ -2046,8 +2048,9 @@ struct ProfileSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(.primary)
+                .buttonStyle(.plain)
                 
                 Button {
                     showingButton2Picker = true
@@ -2063,8 +2066,9 @@ struct ProfileSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(.primary)
+                .buttonStyle(.plain)
             }
             
             Section {
@@ -2082,18 +2086,58 @@ struct ProfileSettingsView: View {
                 }
                 .foregroundStyle(.secondary)
             }
+            
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Alcoholism", systemImage: "staroflife.circle.fill")
+                        .foregroundStyle(.red)
+                        .font(.headline)
+                    
+                    Text("Drinking looks different for everyone. If you're finding it hard to cut back, or just want to talk to someone, you're not alone and support is available.")
+                        .font(.caption)
+                    
+                    Spacer()
+
+                    Button {
+                        openURL(URL(string: "tel://18006624357")!)
+                    } label: {
+                        Label("1-800-662-4357", systemImage: "phone.fill")
+                            .font(.title3.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    
+                    Spacer()
+
+                    Button {
+                        openURL(URL(string: "https://www.samhsa.gov/find-help/national-helpline")!)
+                    } label: {
+                        Label("SAMHSA National Helpline", systemImage: "globe")
+                            .font(.body.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    
+                    Spacer()
+                    
+                    Text("PourChoices is built for awareness, not encouragement. Please drink responsibly.")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                }
+                .foregroundStyle(.secondary)
+            }
         }
         .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture {
+            isWeightFocused = false
+        }
         .sheet(isPresented: $showingButton1Picker) {
             QuickAddButtonPickerView(slot: 1, currentConfig: $button1Config)
         }
         .sheet(isPresented: $showingButton2Picker) {
             QuickAddButtonPickerView(slot: 2, currentConfig: $button2Config)
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollDismissesKeyboard(.interactively)
-        .onTapGesture {
-            isWeightFocused = false
         }
     }
 }
@@ -2105,10 +2149,11 @@ struct QuickAddButtonPickerView: View {
     let slot: Int
     @Binding var currentConfig: QuickAddButtonConfig
 
-    // Drink data — mirrors AddDrinkView exactly
+    // Tracks which drink category grid cell is tapped (to show subtypes below)
+    @State private var focusedCategory: String? = nil
+
     private let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
 
-    // Nicotine data — mirrors AddOtherView exactly
     private struct NicotineOption: Identifiable {
         let id = UUID()
         let name: String
@@ -2125,73 +2170,55 @@ struct QuickAddButtonPickerView: View {
         NicotineOption(name: "Dip",       defaultMg: 5.0,  assetName: "Dip"),
     ]
 
+    private let columns = [
+        GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())
+    ]
+
     var body: some View {
         NavigationStack {
-            List {
-                Section("Drinks") {
-                    ForEach(drinkTypes, id: \.self) { category in
-                        // Category-level row (uses the first subtype's defaults, or hard-coded defaults)
-                        let defaults = categoryDefaults(for: category)
-                        selectionRow(
-                            label: category,
-                            isSelected: currentConfig.category == category && currentConfig.subtype == nil && currentConfig.kind == .drink
-                        ) {
-                            select(QuickAddButtonConfig(
-                                kind: .drink,
-                                category: category,
-                                subtype: nil,
-                                abv: defaults.abv,
-                                volumeOz: defaults.oz,
-                                nicotineMg: nil,
-                                displayLabel: category,
-                                assetName: assetName(for: category)
-                            ))
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
 
-                        // Subtype rows
-                        if let subtypes = AddDrinkView.subtypes[category] {
-                            ForEach(subtypes, id: \.name) { sub in
-                                selectionRow(
-                                    label: "    \(sub.name)",
-                                    isSelected: currentConfig.category == category && currentConfig.subtype == sub.name && currentConfig.kind == .drink,
-                                    secondary: true
-                                ) {
-                                    select(QuickAddButtonConfig(
-                                        kind: .drink,
-                                        category: category,
-                                        subtype: sub.name,
-                                        abv: sub.abv,
-                                        volumeOz: sub.oz,
-                                        nicotineMg: nil,
-                                        displayLabel: sub.name,
-                                        assetName: assetName(for: category)
-                                    ))
-                                }
+                    // MARK: Drinks grid
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Drinks")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(drinkTypes, id: \.self) { category in
+                                drinkGridCell(category: category)
                             }
                         }
-                    }
-                }
+                        .padding(.horizontal)
 
-                Section("Nicotine") {
-                    ForEach(nicotineOptions) { nic in
-                        selectionRow(
-                            label: nic.name,
-                            isSelected: currentConfig.category == nic.name && currentConfig.kind == .nicotine
-                        ) {
-                            select(QuickAddButtonConfig(
-                                kind: .nicotine,
-                                category: nic.name,
-                                subtype: nil,
-                                abv: nil,
-                                volumeOz: nil,
-                                nicotineMg: nic.defaultMg,
-                                displayLabel: nic.name,
-                                assetName: nic.assetName
-                            ))
+                        // Subtype panel — animates in when a category is focused
+                        if let focused = focusedCategory {
+                            subtypePanel(for: focused)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
+
+                    // MARK: Nicotine grid
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Nicotine")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(nicotineOptions) { nic in
+                                nicotineGridCell(nic: nic)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
                 }
+                .padding(.vertical, 16)
+                .animation(.easeInOut(duration: 0.2), value: focusedCategory)
             }
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Button \(slot)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2199,38 +2226,187 @@ struct QuickAddButtonPickerView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .onAppear {
+                // Pre-focus current drink category so subtypes are visible
+                if currentConfig.kind == .drink {
+                    focusedCategory = currentConfig.category
+                }
+            }
         }
+    }
+
+    // MARK: - Drink Grid Cell
+
+    @ViewBuilder
+    private func drinkGridCell(category: String) -> some View {
+        let asset = assetName(for: category)
+        let isFocused = focusedCategory == category
+        let isSelected = currentConfig.kind == .drink &&
+                         currentConfig.category == category &&
+                         currentConfig.subtype == nil
+
+        Button {
+            if isFocused {
+                // Second tap on same category = select the category itself
+                let defaults = categoryDefaults(for: category)
+                select(QuickAddButtonConfig(
+                    kind: .drink, category: category, subtype: nil,
+                    abv: defaults.abv, volumeOz: defaults.oz,
+                    nicotineMg: nil, displayLabel: category, assetName: asset
+                ))
+            } else {
+                // First tap = show subtypes panel (or select immediately if no subtypes)
+                let subtypes = AddDrinkView.subtypes[category] ?? []
+                if subtypes.isEmpty {
+                    let defaults = categoryDefaults(for: category)
+                    select(QuickAddButtonConfig(
+                        kind: .drink, category: category, subtype: nil,
+                        abv: defaults.abv, volumeOz: defaults.oz,
+                        nicotineMg: nil, displayLabel: category, assetName: asset
+                    ))
+                } else {
+                    focusedCategory = category
+                }
+            }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 6) {
+                    Image(asset)
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                    Text(category)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isFocused ? Color.black : .primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(isFocused ? Color(red: 1.0, green: 0.855, blue: 0.349) : Color(.secondarySystemGroupedBackground))
+                )
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.accent)
+                        .background(Circle().fill(Color(.systemGroupedBackground)).padding(2))
+                        .offset(x: 6, y: -6)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Subtype Panel
+
+    @ViewBuilder
+    private func subtypePanel(for category: String) -> some View {
+        let subtypes = AddDrinkView.subtypes[category] ?? []
+        let asset = assetName(for: category)
+
+        VStack(spacing: 0) {
+            ForEach(Array(subtypes.enumerated()), id: \.element.name) { index, sub in
+                if index > 0 { Divider().padding(.leading, 16) }
+                Button {
+                    select(QuickAddButtonConfig(
+                        kind: .drink, category: category, subtype: sub.name,
+                        abv: sub.abv, volumeOz: sub.oz,
+                        nicotineMg: nil, displayLabel: sub.name, assetName: asset
+                    ))
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(sub.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            Text(String(format: "%.0f%% · %.1f oz", sub.abv, sub.oz))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if currentConfig.kind == .drink &&
+                           currentConfig.category == category &&
+                           currentConfig.subtype == sub.name {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.accent)
+                                .font(.title3)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal)
+    }
+
+    // MARK: - Nicotine Grid Cell
+
+    @ViewBuilder
+    private func nicotineGridCell(nic: NicotineOption) -> some View {
+        let isSelected = currentConfig.kind == .nicotine && currentConfig.category == nic.name
+
+        Button {
+            select(QuickAddButtonConfig(
+                kind: .nicotine, category: nic.name, subtype: nil,
+                abv: nil, volumeOz: nil,
+                nicotineMg: nic.defaultMg, displayLabel: nic.name, assetName: nic.assetName
+            ))
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 6) {
+                    Image(nic.assetName)
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 44, height: 44)
+                    Text(nic.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.accent)
+                        .background(Circle().fill(Color(.systemGroupedBackground)).padding(2))
+                        .offset(x: 6, y: -6)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Helpers
 
-    @ViewBuilder
-    private func selectionRow(label: String, isSelected: Bool, secondary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(label)
-                    .foregroundStyle(secondary ? .secondary : .primary)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.accent)
-                        .font(.subheadline.weight(.semibold))
-                }
-            }
-        }
-        .foregroundStyle(.primary)
-    }
-
     private func select(_ config: QuickAddButtonConfig) {
         currentConfig = config
         SharedDefaults.saveButton(config, slot: slot)
-        // Push the updated button configs to any running Live Activity
-        LiveActivityManager.updateActivity(
-            peakBAC: 0,
-            timeToBAC: 0,
-            drinkCount: 0,
-            sessionStart: .now
-        )
+        // Update the Live Activity if one is running
+        Task {
+            for activity in Activity<PourChoicesActivityAttributes>.activities {
+                let newState = PourChoicesActivityAttributes.ContentState(
+                    peakBAC: activity.content.state.peakBAC,
+                    timeToBAC: activity.content.state.timeToBAC,
+                    drinkCount: activity.content.state.drinkCount,
+                    button1: SharedDefaults.loadButton(slot: 1),
+                    button2: SharedDefaults.loadButton(slot: 2)
+                )
+                await activity.update(ActivityContent(state: newState, staleDate: nil))
+            }
+        }
         dismiss()
     }
 

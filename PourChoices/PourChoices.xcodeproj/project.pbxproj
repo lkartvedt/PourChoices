@@ -410,6 +410,7 @@
 				INFOPLIST_FILE = PourChoicesLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = PourChoicesLiveActivity;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -441,6 +442,7 @@
 				INFOPLIST_FILE = PourChoicesLiveActivity/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = PourChoicesLiveActivity;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

@@ -25,7 +25,6 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             // DYNAMIC ISLAND presentations
             // ----------------------------------------------------------------
             DynamicIsland {
-                // Expanded — shows when user touches/holds the Dynamic Island
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(String(format: "%.3f%%", context.state.peakBAC))
@@ -60,21 +59,18 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 }
 
             } compactLeading: {
-                // Compact leading — small BAC number
                 Text(String(format: "%.3f", context.state.peakBAC))
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
                     .padding(.leading, 4)
 
             } compactTrailing: {
-                // Compact trailing — time to peak
                 Text("\(Int(context.state.timeToBAC))m")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
                     .padding(.trailing, 4)
 
             } minimal: {
-                // Minimal — just the colored BAC
                 Text(String(format: "%.2f", context.state.peakBAC))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
@@ -88,17 +84,15 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
 
     @ViewBuilder
     private func lockScreenView(context: ActivityViewContext<PourChoicesActivityAttributes>) -> some View {
-        HStack(spacing: 0) {
-            // Left: BAC display — mirrors the ActiveSessionView layout
+        HStack(spacing: 14) {
+            // Left: BAC + time
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
-
                 Text("in \(Int(context.state.timeToBAC)) min")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
-
                 Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -106,34 +100,38 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
 
             Spacer()
 
-            // Right: Quick-add buttons stacked vertically
-            VStack(spacing: 8) {
+            // Right: two square buttons side by side
+            HStack(spacing: 10) {
                 quickAddButton(config: context.state.button1, intent: QuickAddButton1Intent())
                 quickAddButton(config: context.state.button2, intent: QuickAddButton2Intent())
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
     // MARK: - Quick Add Button
 
     @ViewBuilder
     private func quickAddButton<I: AppIntent>(config: QuickAddButtonConfig, intent: I) -> some View {
+        
         Button(intent: intent) {
-            HStack(spacing: 6) {
+            VStack(spacing: 5) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.caption)
-                Text(config.displayLabel)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.accent)
+                HStack(spacing: 3) {
+                    Text(config.displayLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .foregroundStyle(Color.black)
             }
-            .foregroundStyle(Color.black)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .frame(width: 76, height: 76)
             .background(
-                Capsule()
-                    .fill(Color(red: 1.0, green: 0.855, blue: 0.349)) // warm gold accent
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white)
             )
         }
         .buttonStyle(.plain)
@@ -141,7 +139,6 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
 
     // MARK: - BAC Color Helper
 
-    /// Matches the bacColor() function in ActiveSessionView exactly.
     private func bacColor(_ bac: Double) -> Color {
         switch bac {
         case 0..<0.03: return .green
