@@ -465,10 +465,19 @@ struct ActiveSessionView: View {
         }
     }
     
+    /// Returns true if an automatic stop with this name already exists in the session.
+    private func isDuplicateAutoLocation(_ name: String) -> Bool {
+        session.locations.contains { !$0.isManualLog && $0.locationName == name }
+    }
+
     private func setupLocationTracking() {
         // Set up callback for automatic location changes
         locationTracker.onSignificantLocationChange = { location, venueName in
             let stopName = venueName ?? "Unknown Location"
+            guard !self.isDuplicateAutoLocation(stopName) else {
+                print("Skipping duplicate auto location: \(stopName)")
+                return
+            }
             let stop = LocationStop(
                 locationName: stopName,
                 latitude: location.coordinate.latitude,
@@ -492,17 +501,13 @@ struct ActiveSessionView: View {
                     return
                 }
                 
-                // Check if we already have a location for this session
-                await MainActor.run {
-                    guard session.locations.isEmpty else {
-                        print("Session already has locations")
-                        return
-                    }
-                }
-                
                 let venueName = await locationTracker.getBestVenueName(for: location)
                 
                 await MainActor.run {
+                    guard !self.isDuplicateAutoLocation(venueName) else {
+                        print("Skipping duplicate initial location after permission: \(venueName)")
+                        return
+                    }
                     let stop = LocationStop(
                         locationName: venueName,
                         latitude: location.coordinate.latitude,
@@ -537,15 +542,13 @@ struct ActiveSessionView: View {
                     return
                 }
                 
-                // Check if we already have a location for this session
-                guard session.locations.isEmpty else {
-                    print("Session already has locations")
-                    return
-                }
-                
                 let venueName = await locationTracker.getBestVenueName(for: location)
                 
                 await MainActor.run {
+                    guard !self.isDuplicateAutoLocation(venueName) else {
+                        print("Skipping duplicate initial location: \(venueName)")
+                        return
+                    }
                     let stop = LocationStop(
                         locationName: venueName,
                         latitude: location.coordinate.latitude,
@@ -675,7 +678,8 @@ struct ActiveSessionView: View {
             let stop = LocationStop(
                 locationName: "Unknown Location",
                 latitude: 0,
-                longitude: 0
+                longitude: 0,
+                isManualLog: true
             )
             session.locations.append(stop)
             modelContext.insert(stop)
@@ -689,7 +693,8 @@ struct ActiveSessionView: View {
                 let stop = LocationStop(
                     locationName: venueName,
                     latitude: location.coordinate.latitude,
-                    longitude: location.coordinate.longitude
+                    longitude: location.coordinate.longitude,
+                    isManualLog: true
                 )
                 session.locations.append(stop)
                 modelContext.insert(stop)
@@ -1931,7 +1936,7 @@ struct ProfileSettingsView: View {
                               ),
                               in: ...Calendar.current.date(byAdding: .year, value: -21, to: Date())!,
                               displayedComponents: .date)
-                        .tint(.black)
+                        .tint(.blue)
                     
                     Text("Must be 21+")
                         .font(.caption)

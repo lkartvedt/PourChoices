@@ -91,15 +91,18 @@ final class LocationStop {
     var locationName: String?
     var latitude: Double
     var longitude: Double
+    /// True when the user tapped "Log Location" explicitly; false for automatic stops.
+    var isManualLog: Bool
     
     var session: DrinkingSession?
     
-    init(arrivalTime: Date = Date(), locationName: String? = nil, latitude: Double, longitude: Double) {
+    init(arrivalTime: Date = Date(), locationName: String? = nil, latitude: Double, longitude: Double, isManualLog: Bool = false) {
         self.id = UUID()
         self.arrivalTime = arrivalTime
         self.locationName = locationName
         self.latitude = latitude
         self.longitude = longitude
+        self.isManualLog = isManualLog
     }
     
     var coordinate: CLLocationCoordinate2D {
