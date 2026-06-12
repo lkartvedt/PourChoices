@@ -221,6 +221,7 @@ struct ActiveSessionView: View {
     @State private var showingEndSessionConfirmation = false
     @State private var cachedBAC: Double = 0.0
     @State private var cachedTimeToBAC: Double = 0.0
+    @State private var cachedPeakBACDate: Date = Date()
 
     private func recalculateBAC() {
         let (bac, time) = BACCalculator.estimateBAC(
@@ -237,6 +238,7 @@ struct ActiveSessionView: View {
         )
         cachedBAC = bac
         cachedTimeToBAC = time
+        cachedPeakBACDate = Date().addingTimeInterval(time * 60)
         if bac > session.peakBAC {
             session.peakBAC = bac
         }
@@ -301,9 +303,12 @@ struct ActiveSessionView: View {
                     .font(.system(size: 60, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(cachedBAC))
                 
-                Text("in \(Int(cachedTimeToBAC.rounded())) min")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(cachedBAC))
+                TimelineView(.everyMinute) { _ in
+                    let minsLeft = max(0, Int((cachedPeakBACDate.timeIntervalSinceNow / 60).rounded()))
+                    Text(minsLeft > 0 ? "in \(minsLeft) min" : "now")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(bacColor(cachedBAC))
+                }
             }
             .frame(maxWidth: .infinity)
             .background(Color(.systemGroupedBackground))
@@ -2403,7 +2408,7 @@ struct QuickAddButtonPickerView: View {
             for activity in Activity<PourChoicesActivityAttributes>.activities {
                 let newState = PourChoicesActivityAttributes.ContentState(
                     peakBAC: activity.content.state.peakBAC,
-                    timeToBAC: activity.content.state.timeToBAC,
+                    peakBACDate: activity.content.state.peakBACDate,
                     drinkCount: activity.content.state.drinkCount,
                     button1: SharedDefaults.loadButton(slot: 1),
                     button2: SharedDefaults.loadButton(slot: 2)

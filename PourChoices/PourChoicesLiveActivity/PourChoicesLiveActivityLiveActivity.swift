@@ -37,17 +37,17 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                     .padding(.leading, 4)
                 }
 
-//                DynamicIslandExpandedRegion(.trailing) {
-//                    VStack(alignment: .trailing, spacing: 2) {
-//                        Text("in \(Int(context.state.timeToBAC)) min")
-//                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-//                            .foregroundStyle(bacColor(context.state.peakBAC))
-//                        Text("\(context.state.drinkCount) drinks")
-//                            .font(.caption2)
-//                            .foregroundStyle(.secondary)
-//                    }
-//                    .padding(.trailing, 4)
-//                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        countdownText(peakBACDate: context.state.peakBACDate)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(bacColor(context.state.peakBAC))
+                        Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.trailing, 4)
+                }
 
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 12) {
@@ -65,10 +65,10 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                     .padding(.leading, 4)
 
             } compactTrailing: {
-//                Text("\(Int(context.state.timeToBAC))m")
-//                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-//                    .foregroundStyle(.secondary)
-//                    .padding(.trailing, 4)
+                countdownText(peakBACDate: context.state.peakBACDate)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 4)
 
             } minimal: {
                 Text(String(format: "%.2f", context.state.peakBAC))
@@ -90,9 +90,9 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundStyle(bacColor(context.state.peakBAC))
-//                Text("in \(Int(context.state.timeToBAC)) min")
-//                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-//                    .foregroundStyle(bacColor(context.state.peakBAC))
+                countdownText(peakBACDate: context.state.peakBACDate)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(bacColor(context.state.peakBAC))
                 Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -139,6 +139,20 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Countdown Helper
+
+    /// Returns a Text that counts down to peakBACDate, showing "in Xm" format.
+    /// Once the date is in the past it shows "now". Uses SwiftUI's built-in
+    /// timer date style so it ticks every minute without any manual timers.
+    @ViewBuilder
+    private func countdownText(peakBACDate: Date) -> some View {
+        if peakBACDate > Date() {
+            Text("in ") + Text(peakBACDate, style: .timer)
+        } else {
+            Text("now")
+        }
+    }
+
     // MARK: - BAC Color Helper
 
     private func bacColor(_ bac: Double) -> Color {
@@ -158,14 +172,14 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
 } contentStates: {
     PourChoicesActivityAttributes.ContentState(
         peakBAC: 0.065,
-        timeToBAC: 42,
+        peakBACDate: Date().addingTimeInterval(42 * 60),
         drinkCount: 2,
         button1: .defaultButton1,
         button2: .defaultButton2
     )
     PourChoicesActivityAttributes.ContentState(
         peakBAC: 0.12,
-        timeToBAC: 18,
+        peakBACDate: Date().addingTimeInterval(18 * 60),
         drinkCount: 5,
         button1: .defaultButton1,
         button2: .defaultButton2

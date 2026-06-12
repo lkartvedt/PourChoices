@@ -95,7 +95,7 @@ struct PourChoicesActivityAttributes: ActivityAttributes {
     /// Dynamic state updated whenever BAC changes or buttons are reconfigured.
     struct ContentState: Codable, Hashable {
         let peakBAC: Double         // predicted peak BAC (matches cachedBAC in the app)
-        let timeToBAC: Double       // minutes until peak (matches cachedTimeToBAC in the app)
+        let peakBACDate: Date       // absolute time when peak BAC is reached (for countdown display)
         let drinkCount: Int
         let button1: QuickAddButtonConfig
         let button2: QuickAddButtonConfig

@@ -27,7 +27,7 @@ struct LiveActivityManager {
         let attributes = PourChoicesActivityAttributes(sessionStartTime: session.startTime)
         let state = PourChoicesActivityAttributes.ContentState(
             peakBAC: peakBAC,
-            timeToBAC: timeToBAC,
+            peakBACDate: Date().addingTimeInterval(timeToBAC * 60),
             drinkCount: session.drinks.count,
             button1: SharedDefaults.loadButton(slot: 1),
             button2: SharedDefaults.loadButton(slot: 2)
@@ -54,7 +54,7 @@ struct LiveActivityManager {
                                drinkCount: Int, sessionStart: Date) {
         let state = PourChoicesActivityAttributes.ContentState(
             peakBAC: peakBAC,
-            timeToBAC: timeToBAC,
+            peakBACDate: Date().addingTimeInterval(timeToBAC * 60),
             drinkCount: drinkCount,
             button1: SharedDefaults.loadButton(slot: 1),
             button2: SharedDefaults.loadButton(slot: 2)
