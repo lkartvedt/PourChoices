@@ -216,8 +216,10 @@ struct ActiveSessionView: View {
     @State private var showLocationPermissionAlert = false
     @State private var showLocationDeniedAlert = false
     @State private var showingEndSessionConfirmation = false
-    
-    var peakBACAndTime: (Double, Double) {
+    @State private var cachedBAC: Double = 0.0
+    @State private var cachedTimeToBAC: Double = 0.0
+
+    private func recalculateBAC() {
         let (bac, time) = BACCalculator.estimateBAC(
             drinks: session.drinks,
             food: session.food,
@@ -230,13 +232,11 @@ struct ActiveSessionView: View {
             sessionStart: session.startTime,
             at: Date()
         )
-
-        // Update peak BAC if this is higher
+        cachedBAC = bac
+        cachedTimeToBAC = time
         if bac > session.peakBAC {
             session.peakBAC = bac
         }
-
-        return (bac, time)
     }
     
     var canLogLocation: Bool {
@@ -283,17 +283,17 @@ struct ActiveSessionView: View {
             // Big BAC Display
             VStack {
                 
-                Text("BAC: \(bacStatus(peakBACAndTime.0))")
+                Text("BAC: \(bacStatus(cachedBAC))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 
-                Text(String(format: "%.3f%%", peakBACAndTime.0))
+                Text(String(format: "%.3f%%", cachedBAC))
                     .font(.system(size: 60, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(peakBACAndTime.0))
+                    .foregroundStyle(bacColor(cachedBAC))
                 
-                Text("in \(Int(peakBACAndTime.1.rounded())) min")
+                Text("in \(Int(cachedTimeToBAC.rounded())) min")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(peakBACAndTime.0))
+                    .foregroundStyle(bacColor(cachedBAC))
             }
             .frame(maxWidth: .infinity)
             .background(Color(.systemGroupedBackground))
@@ -444,10 +444,15 @@ struct ActiveSessionView: View {
         }
         .onAppear {
             setupLocationTracking()
+            recalculateBAC()
         }
         .onDisappear {
             locationTracker.stopTracking()
         }
+        .onChange(of: session.drinks.count) { _, _ in recalculateBAC() }
+        .onChange(of: session.food.count) { _, _ in recalculateBAC() }
+        .onChange(of: session.water.count) { _, _ in recalculateBAC() }
+        .onChange(of: session.nicotine.count) { _, _ in recalculateBAC() }
         .onChange(of: locationTracker.authorizationStatus) { oldValue, newValue in
             // Update UI when authorization status changes
             print("Authorization changed from \(oldValue.rawValue) to \(newValue.rawValue)")
