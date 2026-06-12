@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import CoreLocation
 import MapKit
+import ActivityKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -185,12 +186,14 @@ struct ContentView: View {
     }
     
     private func createNewSession() {
+        let session = DrinkingSession()
         withAnimation {
-            let session = DrinkingSession()
             modelContext.insert(session)
             // Navigate into the new session
             navigationPath.append(session)
         }
+        // Start a Live Activity for the new session (BAC starts at 0)
+        LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
     }
     
     private func deleteSessions(offsets: IndexSet) {
@@ -237,6 +240,13 @@ struct ActiveSessionView: View {
         if bac > session.peakBAC {
             session.peakBAC = bac
         }
+        // Keep the Live Activity in sync with the latest BAC values.
+        LiveActivityManager.updateActivity(
+            peakBAC: bac,
+            timeToBAC: time,
+            drinkCount: session.drinks.count,
+            sessionStart: session.startTime
+        )
     }
     
     var canLogLocation: Bool {
@@ -723,6 +733,9 @@ struct ActiveSessionView: View {
                         session.endTime = Date()
                     }
                     
+                    // Dismiss the Live Activity
+                    LiveActivityManager.endActivity()
+                    
                     // Navigate back to home
                     dismiss()
                 }
@@ -733,6 +746,8 @@ struct ActiveSessionView: View {
             withAnimation {
                 session.endTime = Date()
             }
+            // Dismiss the Live Activity
+            LiveActivityManager.endActivity()
             dismiss()
         }
     }
@@ -1917,6 +1932,12 @@ struct ProfileSettingsView: View {
     @Bindable var profile: UserProfile
     @FocusState private var isWeightFocused: Bool
     
+    // Quick-add button config state — loaded from shared App Group defaults
+    @State private var button1Config: QuickAddButtonConfig = SharedDefaults.loadButton(slot: 1)
+    @State private var button2Config: QuickAddButtonConfig = SharedDefaults.loadButton(slot: 2)
+    @State private var showingButton1Picker = false
+    @State private var showingButton2Picker = false
+    
     var heightFeet: Int {
         Int(profile.heightInches) / 12
     }
@@ -2010,6 +2031,42 @@ struct ProfileSettingsView: View {
                 }
             }
             
+            Section("Lock Screen Quick Add") {
+                Button {
+                    showingButton1Picker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "1.circle.fill")
+                            .foregroundStyle(.accent)
+                        Text("Button 1")
+                        Spacer()
+                        Text(button1Config.displayLabel)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .foregroundStyle(.primary)
+                
+                Button {
+                    showingButton2Picker = true
+                } label: {
+                    HStack {
+                        Image(systemName: "2.circle.fill")
+                            .foregroundStyle(.accent)
+                        Text("Button 2")
+                        Spacer()
+                        Text(button2Config.displayLabel)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+            
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Important", systemImage: "exclamationmark.triangle.fill")
@@ -2027,11 +2084,169 @@ struct ProfileSettingsView: View {
             }
         }
         .navigationTitle("Profile")
+        .sheet(isPresented: $showingButton1Picker) {
+            QuickAddButtonPickerView(slot: 1, currentConfig: $button1Config)
+        }
+        .sheet(isPresented: $showingButton2Picker) {
+            QuickAddButtonPickerView(slot: 2, currentConfig: $button2Config)
+        }
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture {
             isWeightFocused = false
         }
+    }
+}
+
+// MARK: - Quick Add Button Picker View
+
+struct QuickAddButtonPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let slot: Int
+    @Binding var currentConfig: QuickAddButtonConfig
+
+    // Drink data — mirrors AddDrinkView exactly
+    private let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
+
+    // Nicotine data — mirrors AddOtherView exactly
+    private struct NicotineOption: Identifiable {
+        let id = UUID()
+        let name: String
+        let defaultMg: Double
+        let assetName: String
+    }
+
+    private let nicotineOptions: [NicotineOption] = [
+        NicotineOption(name: "Zyn",       defaultMg: 3.0,  assetName: "Zyn3"),
+        NicotineOption(name: "Vape",      defaultMg: 3.0,  assetName: "Vape"),
+        NicotineOption(name: "Cigarette", defaultMg: 2.0,  assetName: "Cig"),
+        NicotineOption(name: "Cigar",     defaultMg: 10.0, assetName: "Cigar"),
+        NicotineOption(name: "Gum",       defaultMg: 3.0,  assetName: "Gum"),
+        NicotineOption(name: "Dip",       defaultMg: 5.0,  assetName: "Dip"),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Drinks") {
+                    ForEach(drinkTypes, id: \.self) { category in
+                        // Category-level row (uses the first subtype's defaults, or hard-coded defaults)
+                        let defaults = categoryDefaults(for: category)
+                        selectionRow(
+                            label: category,
+                            isSelected: currentConfig.category == category && currentConfig.subtype == nil && currentConfig.kind == .drink
+                        ) {
+                            select(QuickAddButtonConfig(
+                                kind: .drink,
+                                category: category,
+                                subtype: nil,
+                                abv: defaults.abv,
+                                volumeOz: defaults.oz,
+                                nicotineMg: nil,
+                                displayLabel: category,
+                                assetName: assetName(for: category)
+                            ))
+                        }
+
+                        // Subtype rows
+                        if let subtypes = AddDrinkView.subtypes[category] {
+                            ForEach(subtypes, id: \.name) { sub in
+                                selectionRow(
+                                    label: "    \(sub.name)",
+                                    isSelected: currentConfig.category == category && currentConfig.subtype == sub.name && currentConfig.kind == .drink,
+                                    secondary: true
+                                ) {
+                                    select(QuickAddButtonConfig(
+                                        kind: .drink,
+                                        category: category,
+                                        subtype: sub.name,
+                                        abv: sub.abv,
+                                        volumeOz: sub.oz,
+                                        nicotineMg: nil,
+                                        displayLabel: sub.name,
+                                        assetName: assetName(for: category)
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Nicotine") {
+                    ForEach(nicotineOptions) { nic in
+                        selectionRow(
+                            label: nic.name,
+                            isSelected: currentConfig.category == nic.name && currentConfig.kind == .nicotine
+                        ) {
+                            select(QuickAddButtonConfig(
+                                kind: .nicotine,
+                                category: nic.name,
+                                subtype: nil,
+                                abv: nil,
+                                volumeOz: nil,
+                                nicotineMg: nic.defaultMg,
+                                displayLabel: nic.name,
+                                assetName: nic.assetName
+                            ))
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Button \(slot)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func selectionRow(label: String, isSelected: Bool, secondary: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(label)
+                    .foregroundStyle(secondary ? .secondary : .primary)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.accent)
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+        .foregroundStyle(.primary)
+    }
+
+    private func select(_ config: QuickAddButtonConfig) {
+        currentConfig = config
+        SharedDefaults.saveButton(config, slot: slot)
+        // Push the updated button configs to any running Live Activity
+        LiveActivityManager.updateActivity(
+            peakBAC: 0,
+            timeToBAC: 0,
+            drinkCount: 0,
+            sessionStart: .now
+        )
+        dismiss()
+    }
+
+    private func categoryDefaults(for category: String) -> (abv: Double, oz: Double) {
+        switch category {
+        case "Beer":        return (5.0, 12.0)
+        case "Wine":        return (12.0, 5.0)
+        case "Shot":        return (40.0, 1.5)
+        case "Cocktail":    return (20.0, 4.0)
+        case "Mixed Drink": return (10.0, 8.0)
+        default:            return (8.0, 8.0)
+        }
+    }
+
+    private func assetName(for category: String) -> String {
+        category == "Mixed Drink" ? "MixedDrink" : category
     }
 }
 

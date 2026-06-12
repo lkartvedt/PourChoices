@@ -6,7 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A65EA3652FDB9C64003BCA77 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */; };
+		A65EA3672FDB9C64003BCA77 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */; };
+		A65EA3782FDB9C65003BCA77 /* PourChoicesLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
+		A65EA3762FDB9C65003BCA77 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A6B5436B2FD7E2670069C968 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A65EA3612FDB9C64003BCA77;
+			remoteInfo = PourChoicesLiveActivityExtension;
+		};
 		A6B543832FD7E2680069C968 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A6B5436B2FD7E2670069C968 /* Project object */;
@@ -23,15 +36,61 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		A65EA37D2FDB9C65003BCA77 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A65EA3782FDB9C65003BCA77 /* PourChoicesLiveActivityExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PourChoicesLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		A65EA37E2FDB9C83003BCA77 /* PourChoicesLiveActivityExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PourChoicesLiveActivityExtension.entitlements; sourceTree = "<group>"; };
 		A6B543732FD7E2670069C968 /* PourChoices.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PourChoices.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6B543822FD7E2680069C968 /* PourChoicesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PourChoicesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6B5438C2FD7E2680069C968 /* PourChoicesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PourChoicesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A65EA3792FDB9C65003BCA77 /* Exceptions for "PourChoicesLiveActivity" folder in "PourChoicesLiveActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A65EA3612FDB9C64003BCA77 /* PourChoicesLiveActivityExtension */;
+		};
+		A65EA3802FDB9CB7003BCA77 /* Exceptions for "PourChoices" folder in "PourChoices" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A6B543722FD7E2670069C968 /* PourChoices */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A65EA3682FDB9C64003BCA77 /* PourChoicesLiveActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A65EA3792FDB9C65003BCA77 /* Exceptions for "PourChoicesLiveActivity" folder in "PourChoicesLiveActivityExtension" target */,
+			);
+			path = PourChoicesLiveActivity;
+			sourceTree = "<group>";
+		};
 		A6B543752FD7E2670069C968 /* PourChoices */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A65EA3802FDB9CB7003BCA77 /* Exceptions for "PourChoices" folder in "PourChoices" target */,
+			);
 			path = PourChoices;
 			sourceTree = "<group>";
 		};
@@ -48,6 +107,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A65EA35F2FDB9C64003BCA77 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A65EA3672FDB9C64003BCA77 /* SwiftUI.framework in Frameworks */,
+				A65EA3652FDB9C64003BCA77 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6B543702FD7E2670069C968 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -72,12 +140,24 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A65EA3632FDB9C64003BCA77 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */,
+				A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		A6B5436A2FD7E2670069C968 = {
 			isa = PBXGroup;
 			children = (
+				A65EA37E2FDB9C83003BCA77 /* PourChoicesLiveActivityExtension.entitlements */,
 				A6B543752FD7E2670069C968 /* PourChoices */,
 				A6B543852FD7E2680069C968 /* PourChoicesTests */,
 				A6B5438F2FD7E2680069C968 /* PourChoicesUITests */,
+				A65EA3682FDB9C64003BCA77 /* PourChoicesLiveActivity */,
+				A65EA3632FDB9C64003BCA77 /* Frameworks */,
 				A6B543742FD7E2670069C968 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -88,6 +168,7 @@
 				A6B543732FD7E2670069C968 /* PourChoices.app */,
 				A6B543822FD7E2680069C968 /* PourChoicesTests.xctest */,
 				A6B5438C2FD7E2680069C968 /* PourChoicesUITests.xctest */,
+				A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -95,6 +176,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A65EA3612FDB9C64003BCA77 /* PourChoicesLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A65EA37A2FDB9C65003BCA77 /* Build configuration list for PBXNativeTarget "PourChoicesLiveActivityExtension" */;
+			buildPhases = (
+				A65EA35E2FDB9C64003BCA77 /* Sources */,
+				A65EA35F2FDB9C64003BCA77 /* Frameworks */,
+				A65EA3602FDB9C64003BCA77 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A65EA3682FDB9C64003BCA77 /* PourChoicesLiveActivity */,
+			);
+			name = PourChoicesLiveActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = PourChoicesLiveActivityExtension;
+			productReference = A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		A6B543722FD7E2670069C968 /* PourChoices */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A6B543962FD7E2680069C968 /* Build configuration list for PBXNativeTarget "PourChoices" */;
@@ -102,10 +205,12 @@
 				A6B5436F2FD7E2670069C968 /* Sources */,
 				A6B543702FD7E2670069C968 /* Frameworks */,
 				A6B543712FD7E2670069C968 /* Resources */,
+				A65EA37D2FDB9C65003BCA77 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A65EA3772FDB9C65003BCA77 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A6B543752FD7E2670069C968 /* PourChoices */,
@@ -173,6 +278,9 @@
 				LastSwiftUpdateCheck = 2630;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					A65EA3612FDB9C64003BCA77 = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					A6B543722FD7E2670069C968 = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -203,11 +311,19 @@
 				A6B543722FD7E2670069C968 /* PourChoices */,
 				A6B543812FD7E2680069C968 /* PourChoicesTests */,
 				A6B5438B2FD7E2680069C968 /* PourChoicesUITests */,
+				A65EA3612FDB9C64003BCA77 /* PourChoicesLiveActivityExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A65EA3602FDB9C64003BCA77 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6B543712FD7E2670069C968 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -232,6 +348,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A65EA35E2FDB9C64003BCA77 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A6B5436F2FD7E2670069C968 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -256,6 +379,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A65EA3772FDB9C65003BCA77 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A65EA3612FDB9C64003BCA77 /* PourChoicesLiveActivityExtension */;
+			targetProxy = A65EA3762FDB9C65003BCA77 /* PBXContainerItemProxy */;
+		};
 		A6B543842FD7E2680069C968 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A6B543722FD7E2670069C968 /* PourChoices */;
@@ -269,6 +397,68 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A65EA37B2FDB9C65003BCA77 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PourChoicesLiveActivityExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GYYZ6MPM98;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PourChoicesLiveActivity/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PourChoicesLiveActivity;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lkartvedt.PourChoices.PourChoicesLiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A65EA37C2FDB9C65003BCA77 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PourChoicesLiveActivityExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GYYZ6MPM98;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PourChoicesLiveActivity/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PourChoicesLiveActivity;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lkartvedt.PourChoices.PourChoicesLiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		A6B543942FD7E2680069C968 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -395,12 +585,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PourChoices/PourChoices.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = GYYZ6MPM98;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PourChoices/Info.plist;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour Choices tracks your location to automatically log bar hops and show your route on the map. Your location data stays private on your device.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,12 +621,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PourChoices/PourChoices.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = GYYZ6MPM98;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PourChoices/Info.plist;
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Pour Choices tracks your location to automatically log bar hops and show your route on the map. Your location data stays private on your device.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -543,6 +739,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A65EA37A2FDB9C65003BCA77 /* Build configuration list for PBXNativeTarget "PourChoicesLiveActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A65EA37B2FDB9C65003BCA77 /* Debug */,
+				A65EA37C2FDB9C65003BCA77 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A6B5436E2FD7E2670069C968 /* Build configuration list for PBXProject "PourChoices" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

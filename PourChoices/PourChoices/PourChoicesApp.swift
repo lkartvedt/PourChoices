@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import ActivityKit
 
 @main
 struct PourChoicesApp: App {
@@ -20,7 +21,9 @@ struct PourChoicesApp: App {
     private static let lastForegroundKey = "lastForegroundDate"
     private static let autoEndThreshold: TimeInterval = 8 * 3600
 
-    var sharedModelContainer: ModelContainer = {
+    /// Static so QuickAddHandler (called from a LiveActivityIntent) can
+    /// access the same container instance without re-creating it.
+    static let sharedModelContainer: ModelContainer = {
         let schema = Schema([
             DrinkingSession.self,
             DrinkEntry.self,
@@ -46,7 +49,7 @@ struct PourChoicesApp: App {
                     .preferredColorScheme(.dark)
             } else {
                 ContentView()
-                    .modelContainer(sharedModelContainer)
+                    .modelContainer(Self.sharedModelContainer)
                     .preferredColorScheme(.dark)
                     .onAppear {
                         closeAbandonedSessions()
@@ -71,7 +74,7 @@ struct PourChoicesApp: App {
     /// last recorded foreground timestamp is older than `autoEndThreshold`. If
     /// it is, the user clearly isn't in an active session anymore.
     private func closeAbandonedSessions() {
-        let context = sharedModelContainer.mainContext
+        let context = Self.sharedModelContainer.mainContext
         guard let sessions = try? context.fetch(FetchDescriptor<DrinkingSession>()) else { return }
         let activeSessions = sessions.filter { $0.isActive }
         guard !activeSessions.isEmpty else { return }
@@ -93,6 +96,11 @@ struct PourChoicesApp: App {
         }
 
         try? context.save()
+
+        // End any Live Activities left from the abandoned session.
+        if activeSessions.allSatisfy({ $0.endTime != nil }) {
+            LiveActivityManager.endAllActivities()
+        }
     }
 }
 // MARK: - Splash Screen View
