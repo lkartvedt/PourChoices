@@ -55,6 +55,7 @@ struct PourChoicesApp: App {
                     .onAppear {
                         closeAbandonedSessions()
                         NotificationManager.requestPermission()
+                        NotificationManager.schedulePartyNightNotification()
                     }
             }
         }
@@ -65,6 +66,11 @@ struct PourChoicesApp: App {
             // "last seen" timestamp possible.
             if scenePhase == .active || scenePhase == .background {
                 UserDefaults.standard.set(Date(), forKey: Self.lastForegroundKey)
+            }
+            // Refresh party night schedule each time the app becomes active,
+            // in case the user granted/revoked notification permission in Settings.
+            if scenePhase == .active {
+                NotificationManager.schedulePartyNightNotification()
             }
         }
     }

@@ -2,8 +2,6 @@
 //  NotificationSettingsView.swift
 //  PourChoices
 //
-//  Created by Lindsey Kartvedt on 6/15/26.
-//
 
 import SwiftUI
 
@@ -12,19 +10,31 @@ import SwiftUI
 struct NotificationSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var forgotToLog  = NotificationPreferences.forgotToLogEnabled
-    @State private var drinkWater   = NotificationPreferences.drinkWaterEnabled
-    @State private var endSession   = NotificationPreferences.endSessionEnabled
+    // Session-based toggles
+    @State private var forgotToLog = NotificationPreferences.forgotToLogEnabled
+    @State private var drinkWater  = NotificationPreferences.drinkWaterEnabled
+    @State private var endSession  = NotificationPreferences.endSessionEnabled
+
+    // Party night
+    @State private var partyNightEnabled = NotificationPreferences.partyNightEnabled
+    @State private var partyNightDays    = NotificationPreferences.partyNightDays
+    @State private var partyNightTime: Date = {
+        var comps        = DateComponents()
+        comps.hour       = NotificationPreferences.partyNightHour
+        comps.minute     = NotificationPreferences.partyNightMinute
+        return Calendar.current.date(from: comps) ?? Date()
+    }()
 
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: During Session
                 Section {
                     Toggle(isOn: $forgotToLog) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Log Reminder")
                                 .font(.body)
-                            Text("Reminds you after 1 hour of no activity if your BAC is below 0.08")
+                            Text("Reminds you after 1 hour of no activity")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -35,9 +45,9 @@ struct NotificationSettingsView: View {
 
                     Toggle(isOn: $drinkWater) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Drink water")
+                            Text("Drink Water")
                                 .font(.body)
-                            Text("Sends a reminder every 45 minutes while your BAC is above 0.175")
+                            Text("Sends a reminder every 30 minutes while your BAC is above 0.175")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -58,8 +68,55 @@ struct NotificationSettingsView: View {
                     .onChange(of: endSession) { _, newValue in
                         NotificationPreferences.endSessionEnabled = newValue
                     }
+                } header: {
+                    Text("During a Session")
                 } footer: {
-                    Text("Notifications are only sent during an active session.")
+                    Text("These notifications are only sent while a session is active.")
+                }
+
+                // MARK: Party Night Reminder
+                Section {
+                    Toggle(isOn: $partyNightEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Weekly Reminder")
+                                .font(.body)
+                            Text("\"Is it a party night? Start logging now!\"")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .onChange(of: partyNightEnabled) { _, newValue in
+                        NotificationPreferences.partyNightEnabled = newValue
+                        NotificationManager.schedulePartyNightNotification()
+                    }
+
+                    if partyNightEnabled {
+                        // Day picker
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Days")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            WeekdayPickerView(selectedDays: $partyNightDays)
+                        }
+                        .padding(.vertical, 4)
+                        .onChange(of: partyNightDays) { _, newValue in
+                            NotificationPreferences.partyNightDays = newValue
+                            NotificationManager.schedulePartyNightNotification()
+                        }
+
+                        // Time picker
+                        DatePicker("Time", selection: $partyNightTime, displayedComponents: .hourAndMinute)
+                            .onChange(of: partyNightTime) { _, newValue in
+                                let comps = Calendar.current.dateComponents([.hour, .minute], from: newValue)
+                                NotificationPreferences.partyNightHour   = comps.hour ?? 19
+                                NotificationPreferences.partyNightMinute = comps.minute ?? 0
+                                NotificationManager.schedulePartyNightNotification()
+                            }
+                    }
+                } header: {
+                    Text("")
+                } footer: {
+                    Text("Sends a nudge to start logging on nights you typically go out.")
                 }
             }
             .navigationTitle("Notifications")
@@ -72,3 +129,41 @@ struct NotificationSettingsView: View {
         }
     }
 }
+
+// MARK: - Weekday Picker
+
+private struct WeekdayPickerView: View {
+    @Binding var selectedDays: Set<Int>
+
+    // Ordered Mon–Sun for display, mapped to Gregorian weekday numbers (1=Sun…7=Sat)
+    private let days: [(label: String, weekday: Int)] = [
+        ("Mon", 2), ("Tue", 3), ("Wed", 4),
+        ("Thu", 5), ("Fri", 6), ("Sat", 7), ("Sun", 1)
+    ]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(days, id: \.weekday) { day in
+                let selected = selectedDays.contains(day.weekday)
+                Button {
+                    if selected {
+                        // Don't allow deselecting the last day
+                        if selectedDays.count > 1 { selectedDays.remove(day.weekday) }
+                    } else {
+                        selectedDays.insert(day.weekday)
+                    }
+                } label: {
+                    Text(day.label)
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(selected ? Color.accentColor : Color(.tertiarySystemFill),
+                                    in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(selected ? .black : .primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
