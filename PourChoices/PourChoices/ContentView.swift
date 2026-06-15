@@ -11,6 +11,10 @@ import CoreLocation
 import MapKit
 import ActivityKit
 
+struct SessionDetailDestination: Hashable {
+    let session: DrinkingSession
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
@@ -135,7 +139,13 @@ struct ContentView: View {
                 }
             }
             .navigationDestination(for: DrinkingSession.self) { session in
-                ActiveSessionView(session: session, userProfile: userProfile)
+                ActiveSessionView(session: session, userProfile: userProfile) { endedSession in
+                    navigationPath = NavigationPath()
+                    navigationPath.append(SessionDetailDestination(session: endedSession))
+                }
+            }
+            .navigationDestination(for: SessionDetailDestination.self) { destination in
+                SessionDetailView(session: destination.session, userProfile: userProfile)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -210,6 +220,7 @@ struct ContentView: View {
 struct ActiveSessionView: View {
     @Bindable var session: DrinkingSession
     let userProfile: UserProfile
+    let onSessionEnded: ((DrinkingSession) -> Void)?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     
@@ -741,8 +752,12 @@ struct ActiveSessionView: View {
                     // Dismiss the Live Activity
                     LiveActivityManager.endActivity()
                     
-                    // Navigate back to home
-                    dismiss()
+                    // Navigate to session detail
+                    if let onSessionEnded {
+                        onSessionEnded(session)
+                    } else {
+                        dismiss()
+                    }
                 }
             }
         } else {
@@ -753,7 +768,11 @@ struct ActiveSessionView: View {
             }
             // Dismiss the Live Activity
             LiveActivityManager.endActivity()
-            dismiss()
+            if let onSessionEnded {
+                onSessionEnded(session)
+            } else {
+                dismiss()
+            }
         }
     }
     
@@ -1077,26 +1096,8 @@ struct AddDrinkView: View {
                                 isDouble = false
                                 updateDefaults(for: type)
                             }) {
-                                VStack(spacing: 8) {
-                                    Image(assetName(for: type))
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 56, height: 56)
-                                    Text(type)
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(drinkType == type ? Color.black : Color.primary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .fill(drinkType == type ? Color.accent : Color(.secondarySystemGroupedBackground))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .strokeBorder(drinkType == type ? Color.accent : Color.clear, lineWidth: 2)
-                                )
+                                // Add Drink 'Buttons'
+                                SelectableTileLabel(assetName: assetName(for: type), label: type, isSelected: drinkType == type, showBorder: true)
                             }
                             .buttonStyle(.plain)
                         }
@@ -1365,25 +1366,11 @@ struct AddOtherView: View {
                                     nicotineMg = type.defaultMg
                                 }
                             }) {
-                                VStack(spacing: 8) {
-                                    Image(selectedType == "Zyn" && type.name == "Zyn" ? (zynStrength == 6 ? "Zyn6" : "Zyn3") : type.asset)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 56, height: 56)
-                                    Text(type.label)
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                        .foregroundStyle(selectedType == type.name ? Color.black : Color.primary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .fill(selectedType == type.name ? Color.accent : Color(.secondarySystemGroupedBackground))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .strokeBorder(selectedType == type.name ? Color.accent : Color.clear, lineWidth: 2)
+                                SelectableTileLabel(
+                                    assetName: selectedType == "Zyn" && type.name == "Zyn" ? (zynStrength == 6 ? "Zyn6" : "Zyn3") : type.asset,
+                                    label: type.label,
+                                    isSelected: selectedType == type.name,
+                                    showBorder: true
                                 )
                             }
                             .buttonStyle(.plain)
@@ -2269,34 +2256,7 @@ struct QuickAddButtonPickerView: View {
                 focusedCategory = isFocused ? nil : category
             }
         } label: {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 6) {
-                    Image(asset)
-                        .resizable()
-                        .renderingMode(.original)
-                        .scaledToFit()
-                        .frame(width: 44, height: 44)
-                    Text(category)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isFocused ? Color.black : .primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(isFocused ? Color(red: 1.0, green: 0.855, blue: 0.349) : Color(.secondarySystemGroupedBackground))
-                )
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.accent)
-                        .background(Circle().fill(Color(.systemGroupedBackground)).padding(2))
-                        .offset(x: 6, y: -6)
-                }
-            }
+            SelectableTileLabel(assetName: asset, label: category, isSelected: isFocused)
         }
         .buttonStyle(.plain)
     }
@@ -2393,31 +2353,7 @@ struct QuickAddButtonPickerView: View {
                 nicotineMg: nic.defaultMg, displayLabel: nic.name, assetName: nic.assetName
             ))
         } label: {
-            ZStack(alignment: .topTrailing) {
-                VStack(spacing: 6) {
-                    Image(nic.assetName)
-                        .resizable()
-                        .renderingMode(.original)
-                        .scaledToFit()
-                        .frame(width: 44, height: 44)
-                    Text(nic.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.accent)
-                        .background(Circle().fill(Color(.systemGroupedBackground)).padding(2))
-                        .offset(x: 6, y: -6)
-                }
-            }
+            SelectableTileLabel(assetName: nic.assetName, label: nic.name, isSelected: isSelected, showCheckmark: true)
         }
         .buttonStyle(.plain)
     }
