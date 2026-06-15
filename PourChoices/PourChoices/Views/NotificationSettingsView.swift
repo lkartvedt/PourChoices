@@ -25,9 +25,38 @@ struct NotificationSettingsView: View {
         return Calendar.current.date(from: comps) ?? Date()
     }()
 
+    /// True only when every individual toggle is on.
+    private var allEnabled: Bool {
+        forgotToLog && drinkWater && endSession && partyNightEnabled
+    }
+
+    private func setAll(_ enabled: Bool) {
+        forgotToLog      = enabled
+        drinkWater       = enabled
+        endSession       = enabled
+        partyNightEnabled = enabled
+
+        NotificationPreferences.forgotToLogEnabled  = enabled
+        NotificationPreferences.drinkWaterEnabled   = enabled
+        NotificationPreferences.endSessionEnabled   = enabled
+        NotificationPreferences.partyNightEnabled   = enabled
+        NotificationManager.schedulePartyNightNotification()
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: Master toggle
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { allEnabled },
+                        set: { setAll($0) }
+                    )) {
+                        Text("All Notifications")
+                            .font(.body.weight(.medium))
+                    }
+                }
+
                 // MARK: During Session
                 Section {
                     Toggle(isOn: $forgotToLog) {
@@ -47,7 +76,7 @@ struct NotificationSettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Drink Water")
                                 .font(.body)
-                            Text("Sends a reminder every 30 minutes while your BAC is above 0.175")
+                            Text("Sends a reminder every 30 minutes while your BAC is above 0.15")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

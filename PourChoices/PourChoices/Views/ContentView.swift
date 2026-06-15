@@ -77,7 +77,7 @@ struct ContentView: View {
                     // Past sessions list
                     if !sessions.isEmpty {
                         List {
-                            Section("Past Sessions") {
+                            Section("History") {
                                 ForEach(sessions.filter { !$0.isActive }) { session in
                                     NavigationLink {
                                         SessionDetailView(session: session, userProfile: userProfile)
@@ -123,7 +123,7 @@ struct ContentView: View {
                     // Past sessions list
                     if !sessions.isEmpty {
                         List {
-                            Section("Past Sessions") {
+                            Section("History") {
                                 ForEach(sessions.filter { !$0.isActive }) { session in
                                     NavigationLink {
                                         SessionDetailView(session: session, userProfile: userProfile)

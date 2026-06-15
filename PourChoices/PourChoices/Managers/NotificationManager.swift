@@ -145,8 +145,8 @@ struct NotificationManager {
                                                  trigger: endTrigger))
             }
 
-            // 3. Drink water: BAC >= 0.175 — up to 8 reminders, 30 min apart.
-            if NotificationPreferences.drinkWaterEnabled && currentBAC >= 0.175 {
+            // 3. Drink water: BAC >= 0.15 — up to 8 reminders, 30 min apart.
+            if NotificationPreferences.drinkWaterEnabled && currentBAC >= 0.15 {
                 for i in 0..<waterIDs.count {
                     let interval = TimeInterval((i + 1) * 1800)
                     let waterContent = UNMutableNotificationContent()
