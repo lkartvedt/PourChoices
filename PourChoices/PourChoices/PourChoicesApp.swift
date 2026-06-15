@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import ActivityKit
+import UserNotifications
 
 @main
 struct PourChoicesApp: App {
@@ -53,6 +54,7 @@ struct PourChoicesApp: App {
                     .preferredColorScheme(.dark)
                     .onAppear {
                         closeAbandonedSessions()
+                        NotificationManager.requestPermission()
                     }
             }
         }
