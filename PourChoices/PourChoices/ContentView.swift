@@ -312,13 +312,13 @@ struct ActiveSessionView: View {
                 
                 Text(String(format: "%.3f%%", cachedBAC))
                     .font(.system(size: 60, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(cachedBAC))
+                    .foregroundStyle(BacColors.bac(cachedBAC))
                 
                 TimelineView(.everyMinute) { _ in
                     let minsLeft = max(0, Int((cachedPeakBACDate.timeIntervalSinceNow / 60).rounded()))
                     Text(minsLeft > 0 ? "in \(minsLeft) min" : "now")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundStyle(bacColor(cachedBAC))
+                        .foregroundStyle(BacColors.bac(cachedBAC))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -600,15 +600,6 @@ struct ActiveSessionView: View {
         let hours = Int(duration) / 3600
         let minutes = Int(duration) / 60 % 60
         return "\(hours)h \(minutes)m"
-    }
-    
-    private func bacColor(_ bac: Double) -> Color {
-        switch bac {
-        case 0..<0.03: return .green
-        case 0.03..<0.08: return .yellow
-        case 0.08..<0.15: return .orange
-        default: return .red
-        }
     }
     
     private func bacStatus(_ bac: Double) -> String {
@@ -946,7 +937,7 @@ struct TimelineRow: View {
     
     var color: Color {
         switch item.type {
-        case .drink: return .blue
+        case .drink: return .accent
         case .location: return .green
         case .nicotine: return .gray
         case .food: return Color(.systemOrange)
@@ -1559,18 +1550,9 @@ struct PastSessionRow: View {
             
             Text("Peak BAC: \(String(format: "%.3f%%", peakBAC))")
                 .font(.caption)
-                .foregroundStyle(bacColor(peakBAC))
+                .foregroundStyle(BacColors.bac(peakBAC))
         }
         .padding(.vertical, 4)
-    }
-    
-    private func bacColor(_ bac: Double) -> Color {
-        switch bac {
-        case 0..<0.03: return .green
-        case 0.03..<0.08: return .yellow
-        case 0.08..<0.15: return .orange
-        default: return .red
-        }
     }
 }
 
@@ -1640,7 +1622,7 @@ struct SessionDetailView: View {
                 .foregroundStyle(.secondary)
             Text(String(format: "%.3f%%", peakBAC))
                 .font(.system(size: 48, weight: .bold, design: .rounded))
-                .foregroundStyle(bacColor(peakBAC))
+                .foregroundStyle(BacColors.bac(peakBAC))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
@@ -1870,15 +1852,6 @@ struct SessionDetailView: View {
                     .padding(.horizontal)
                 }
             }
-        }
-    }
-    
-    private func bacColor(_ bac: Double) -> Color {
-        switch bac {
-        case 0..<0.03: return .green
-        case 0.03..<0.08: return .yellow
-        case 0.08..<0.15: return .orange
-        default: return .red
         }
     }
     

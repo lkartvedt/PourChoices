@@ -126,9 +126,10 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
 
     private func bacColor(_ bac: Double) -> Color {
         switch bac {
-        case 0..<0.03: return .green
-        case 0.03..<0.08: return .yellow
-        case 0.08..<0.15: return .orange
+        case 0..<0.01: return .white
+        case 0.01..<0.08: return .green
+        case 0.08..<0.2: return .accent
+        case 0.2..<0.35: return .orange
         default: return .red
         }
     }
