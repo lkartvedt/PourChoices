@@ -234,6 +234,7 @@ struct ActiveSessionView: View {
     @State private var cachedBAC: Double = 0.0
     @State private var cachedTimeToBAC: Double = 0.0
     @State private var cachedPeakBACDate: Date = Date()
+    @State private var editingItem: TimelineItem? = nil
 
     private func recalculateBAC() {
         let (bac, time) = BACCalculator.estimateBAC(
@@ -427,8 +428,21 @@ struct ActiveSessionView: View {
                 Section("Timeline") {
                     ForEach(combinedTimeline(), id: \.id) { item in
                         TimelineRow(item: item)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    deleteTimelineItem(item: item)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    editingItem = item
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .foregroundStyle(.black)
+                                .tint(.accent)
+                            }
                     }
-                    .onDelete(perform: deleteTimelineItem)
                 }
             }
             .listStyle(.plain)
@@ -448,6 +462,11 @@ struct ActiveSessionView: View {
         }
         .sheet(isPresented: $showingAddOther) {
             AddOtherView(session: session)
+        }
+        .sheet(item: $editingItem) { item in
+            EditTimelineItemView(item: item) {
+                recalculateBAC()
+            }
         }
         .alert("Location Permission", isPresented: $showLocationPermissionAlert) {
             Button("Settings") {
@@ -807,43 +826,33 @@ struct ActiveSessionView: View {
         return items.sorted { $0.timestamp > $1.timestamp }
     }
     
-    private func deleteTimelineItem(at offsets: IndexSet) {
-        let timeline = combinedTimeline()
-        
-        for index in offsets {
-            let item = timeline[index]
-            
-            withAnimation {
-                switch item.type {
-                case .drink(let drink):
-                    if let drinkIndex = session.drinks.firstIndex(where: { $0.id == drink.id }) {
-                        session.drinks.remove(at: drinkIndex)
-                        modelContext.delete(drink)
-                    }
-                    
-                case .location(let location):
-                    if let locationIndex = session.locations.firstIndex(where: { $0.id == location.id }) {
-                        session.locations.remove(at: locationIndex)
-                        modelContext.delete(location)
-                    }
-                    
-                case .nicotine(let nicotine):
-                    if let nicotineIndex = session.nicotine.firstIndex(where: { $0.id == nicotine.id }) {
-                        session.nicotine.remove(at: nicotineIndex)
-                        modelContext.delete(nicotine)
-                    }
-                    
-                case .food(let food):
-                    if let foodIndex = session.food.firstIndex(where: { $0.id == food.id }) {
-                        session.food.remove(at: foodIndex)
-                        modelContext.delete(food)
-                    }
-                    
-                case .water(let water):
-                    if let waterIndex = session.water.firstIndex(where: { $0.id == water.id }) {
-                        session.water.remove(at: waterIndex)
-                        modelContext.delete(water)
-                    }
+    private func deleteTimelineItem(item: TimelineItem) {
+        withAnimation {
+            switch item.type {
+            case .drink(let drink):
+                if let drinkIndex = session.drinks.firstIndex(where: { $0.id == drink.id }) {
+                    session.drinks.remove(at: drinkIndex)
+                    modelContext.delete(drink)
+                }
+            case .location(let location):
+                if let locationIndex = session.locations.firstIndex(where: { $0.id == location.id }) {
+                    session.locations.remove(at: locationIndex)
+                    modelContext.delete(location)
+                }
+            case .nicotine(let nicotine):
+                if let nicotineIndex = session.nicotine.firstIndex(where: { $0.id == nicotine.id }) {
+                    session.nicotine.remove(at: nicotineIndex)
+                    modelContext.delete(nicotine)
+                }
+            case .food(let food):
+                if let foodIndex = session.food.firstIndex(where: { $0.id == food.id }) {
+                    session.food.remove(at: foodIndex)
+                    modelContext.delete(food)
+                }
+            case .water(let water):
+                if let waterIndex = session.water.firstIndex(where: { $0.id == water.id }) {
+                    session.water.remove(at: waterIndex)
+                    modelContext.delete(water)
                 }
             }
         }
@@ -861,7 +870,7 @@ func drinkAccentAsset(for drinkType: String) -> String {
     }
 }
 
-struct TimelineItem {
+struct TimelineItem: Identifiable {
     let id: String
     let timestamp: Date
     let type: TimelineItemType
@@ -971,6 +980,93 @@ struct TimelineRow: View {
             return "\(food.quantity) slice\(food.quantity > 1 ? "s" : "") of \(food.foodType)"
         case .water(let water):
             return "\(Int(water.volumeOz))oz Water"
+        }
+    }
+}
+
+// MARK: - Edit Timeline Item View
+
+struct EditTimelineItemView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let item: TimelineItem
+    let onSave: () -> Void
+
+    @State private var editedTime: Date
+    @State private var editedLocation: String
+
+    init(item: TimelineItem, onSave: @escaping () -> Void) {
+        self.item = item
+        self.onSave = onSave
+        _editedTime = State(initialValue: item.timestamp)
+        // Pre-populate location from whatever field the item exposes
+        let loc: String?
+        switch item.type {
+        case .drink(let d):   loc = d.locationName
+        case .food(let f):    loc = f.locationName
+        case .water(let w):   loc = w.locationName
+        case .location(let l): loc = l.locationName
+        case .nicotine:        loc = nil
+        }
+        _editedLocation = State(initialValue: loc ?? "")
+    }
+
+    /// Whether this item type stores a location field.
+    private var hasLocation: Bool {
+        if case .nicotine = item.type { return false }
+        return true
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Time") {
+                    DatePicker("Time", selection: $editedTime, displayedComponents: [.date, .hourAndMinute])
+                        .datePickerStyle(.graphical)
+                }
+
+                if hasLocation {
+                    Section("Location") {
+                        TextField("Location name", text: $editedLocation)
+                            .autocorrectionDisabled()
+                    }
+                }
+            }
+            .navigationTitle("Edit Entry")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        applyEdits()
+                        onSave()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyEdits() {
+        let loc: String? = editedLocation.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editedLocation.trimmingCharacters(in: .whitespaces)
+        switch item.type {
+        case .drink(let d):
+            d.timestamp = editedTime
+            d.locationName = loc
+        case .food(let f):
+            f.timestamp = editedTime
+            f.locationName = loc
+        case .water(let w):
+            w.timestamp = editedTime
+            w.locationName = loc
+        case .location(let l):
+            l.arrivalTime = editedTime
+            l.locationName = loc
+        case .nicotine(let n):
+            n.timestamp = editedTime
         }
     }
 }
