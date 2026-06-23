@@ -61,6 +61,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A65AB7AA2FDFE82B00AA5CC4 /* Exceptions for "PourChoices" folder in "PourChoicesLiveActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Views/ReusableCode/AppColors.swift,
+			);
+			target = A65EA3612FDB9C64003BCA77 /* PourChoicesLiveActivityExtension */;
+		};
 		A65EA3792FDB9C65003BCA77 /* Exceptions for "PourChoicesLiveActivity" folder in "PourChoicesLiveActivityExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -90,6 +97,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				A65EA3802FDB9CB7003BCA77 /* Exceptions for "PourChoices" folder in "PourChoices" target */,
+				A65AB7AA2FDFE82B00AA5CC4 /* Exceptions for "PourChoices" folder in "PourChoicesLiveActivityExtension" target */,
 			);
 			path = PourChoices;
 			sourceTree = "<group>";

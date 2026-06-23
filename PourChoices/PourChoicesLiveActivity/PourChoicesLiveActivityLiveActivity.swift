@@ -25,7 +25,7 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     Text(String(format: "%.3f%%", context.state.peakBAC))
                         .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(bacColor(context.state.peakBAC))
+                        .foregroundStyle(BacColors.bac(context.state.peakBAC))
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -34,7 +34,7 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             } compactLeading: {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(context.state.peakBAC))
+                    .foregroundStyle(BacColors.bac(context.state.peakBAC))
                     .minimumScaleFactor(0.7)
                     .lineLimit(1)
             } compactTrailing: {
@@ -42,7 +42,7 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             } minimal: {
                 Text(String(format: "%.2f", context.state.peakBAC))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(context.state.peakBAC))
+                    .foregroundStyle(BacColors.bac(context.state.peakBAC))
             }
             .widgetURL(URL(string: "pourchocies://active-session"))
             .keylineTint(Color.yellow)
@@ -58,10 +58,10 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(format: "%.3f%%", context.state.peakBAC))
                     .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(bacColor(context.state.peakBAC))
+                    .foregroundStyle(BacColors.bac(context.state.peakBAC))
                 countdownText(peakBACDate: context.state.peakBACDate)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(bacColor(context.state.peakBAC))
+                    .foregroundStyle(BacColors.bac(context.state.peakBAC))
                 Text("\(context.state.drinkCount) drink\(context.state.drinkCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -70,13 +70,15 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
             Spacer()
 
             // Right: two square buttons side by side
-            HStack(spacing: 20) {
+            VStack(spacing: 16) {
                 quickAddButton(config: context.state.button1, intent: QuickAddButton1Intent())
                 quickAddButton(config: context.state.button2, intent: QuickAddButton2Intent())
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+        .background(Color.black)
+        .colorScheme(.dark)
     }
 
     // MARK: - Quick Add Button
@@ -84,25 +86,45 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
     @ViewBuilder
     private func quickAddButton<I: AppIntent>(config: QuickAddButtonConfig, intent: I) -> some View {
         
+//        Button(intent: intent) {
+//            VStack {
+//                VStack(spacing: 5) {
+//                    Image(systemName: "plus")
+//                        .font(.system(size: 28, weight: .bold))
+//                        .foregroundStyle(.black)
+//                }
+//                .frame(width: 66, height: 66)
+//                .background(
+//                    Circle()
+//                        .fill(Color.accent)
+//                )
+//                HStack(spacing: 3) {
+//                    Text(config.displayLabel)
+//                        .font(.system(size: 11, weight: .semibold))
+//                        .lineLimit(1)
+//                        .minimumScaleFactor(0.8)
+//                }
+//                .foregroundStyle(Color.white)
+//            }
+//        }
+//        .buttonStyle(.plain)
         Button(intent: intent) {
             VStack {
-                VStack(spacing: 5) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 28, weight: .bold))
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(.black)
+                        Text(config.displayLabel)
+                            .font(.system(size: 16, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .foregroundStyle(.black)
                 }
-                .frame(width: 66, height: 66)
+                .frame(width: 160, height: 40)
                 .background(
-                    Circle()
+                    RoundedRectangle(cornerRadius: 20)
                         .fill(Color.accent)
                 )
-                HStack(spacing: 3) {
-                    Text(config.displayLabel)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-                .foregroundStyle(Color.white)
             }
         }
         .buttonStyle(.plain)
@@ -116,21 +138,9 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
     @ViewBuilder
     private func countdownText(peakBACDate: Date) -> some View {
         if peakBACDate > Date() {
-            Text("in ") + Text(peakBACDate, style: .timer)
+            Text("in \(peakBACDate, style: .timer)")
         } else {
             Text("now")
-        }
-    }
-
-    // MARK: - BAC Color Helper
-
-    private func bacColor(_ bac: Double) -> Color {
-        switch bac {
-        case 0..<0.01: return .white
-        case 0.01..<0.08: return .green
-        case 0.08..<0.2: return .accent
-        case 0.2..<0.35: return .orange
-        default: return .red
         }
     }
 }
@@ -155,3 +165,6 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
         button2: .defaultButton2
     )
 }
+
+
+
