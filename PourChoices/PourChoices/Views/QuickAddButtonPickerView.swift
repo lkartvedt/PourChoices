@@ -17,6 +17,7 @@ struct QuickAddButtonPickerView: View {
 
     // Tracks which drink category grid cell is tapped (to show subtypes below)
     @State private var focusedCategory: String? = nil
+    @State private var customDrinks: [CustomDrinkSubtype] = []
 
     private let drinkTypes = ["Beer", "Wine", "Shot", "Cocktail", "Mixed Drink", "Other"]
 
@@ -93,6 +94,7 @@ struct QuickAddButtonPickerView: View {
                 }
             }
             .onAppear {
+                customDrinks = CustomDrinkStorage.load()
                 // Pre-focus current drink category so subtypes are visible
                 if currentConfig.kind == .drink {
                     focusedCategory = currentConfig.category
@@ -112,7 +114,7 @@ struct QuickAddButtonPickerView: View {
                          currentConfig.subtype == nil
 
         Button {
-            let subtypes = AddDrinkView.subtypes[category] ?? []
+            let subtypes = allSubtypes(for: category)
             if subtypes.isEmpty {
                 // No subtypes — select directly
                 let defaults = categoryDefaults(for: category)
@@ -135,7 +137,7 @@ struct QuickAddButtonPickerView: View {
 
     @ViewBuilder
     private func subtypePanel(for category: String) -> some View {
-        let subtypes = AddDrinkView.subtypes[category] ?? []
+        let subtypes = allSubtypes(for: category)
         let asset = assetName(for: category)
 
         VStack(spacing: 0) {
@@ -247,6 +249,14 @@ struct QuickAddButtonPickerView: View {
             }
         }
         dismiss()
+    }
+
+    private func allSubtypes(for category: String) -> [DrinkSubtype] {
+        let builtIn = AddDrinkView.subtypes[category] ?? []
+        let custom = customDrinks
+            .filter { $0.category == category }
+            .map { DrinkSubtype(name: $0.name, abv: $0.abv, oz: $0.oz) }
+        return builtIn + custom
     }
 
     private func categoryDefaults(for category: String) -> (abv: Double, oz: Double) {
