@@ -1097,6 +1097,43 @@ struct DrinkSubtype {
     let oz: Double
 }
 
+struct CustomDrinkSubtype: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    let category: String   // e.g. "Beer", "Shot"
+    let name: String
+    let abv: Double
+    let oz: Double
+}
+
+struct CustomDrinkStorage {
+    private static let key = "customDrinkSubtypes"
+
+    static func load() -> [CustomDrinkSubtype] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let drinks = try? JSONDecoder().decode([CustomDrinkSubtype].self, from: data)
+        else { return [] }
+        return drinks
+    }
+
+    static func save(_ drinks: [CustomDrinkSubtype]) {
+        if let data = try? JSONEncoder().encode(drinks) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static func add(_ drink: CustomDrinkSubtype) {
+        var current = load()
+        current.append(drink)
+        save(current)
+    }
+
+    static func remove(id: UUID) {
+        var current = load()
+        current.removeAll { $0.id == id }
+        save(current)
+    }
+}
+
 struct AddDrinkView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -1109,6 +1146,7 @@ struct AddDrinkView: View {
     @State private var volumeOz = 12.0
     @State private var selectedSubtype: String = "None"
     @State private var isDouble = false
+    @State private var customDrinks: [CustomDrinkSubtype] = []
     
     @FocusState private var focusedField: AddDrinkField?
     
@@ -1169,7 +1207,11 @@ struct AddDrinkView: View {
     ]
     
     var currentSubtypes: [DrinkSubtype] {
-        AddDrinkView.subtypes[drinkType] ?? []
+        let builtIn = AddDrinkView.subtypes[drinkType] ?? []
+        let custom = customDrinks
+            .filter { $0.category == drinkType }
+            .map { DrinkSubtype(name: $0.name, abv: $0.abv, oz: $0.oz) }
+        return builtIn + custom
     }
     
     var supportsDouble: Bool {
@@ -1253,6 +1295,15 @@ struct AddDrinkView: View {
                                                 )
                                         }
                                         .buttonStyle(.plain)
+                                        .contextMenu {
+                                            if isCustomDrink(name: subtype.name, category: drinkType) {
+                                                Button(role: .destructive) {
+                                                    deleteCustomDrink(name: subtype.name, category: drinkType)
+                                                } label: {
+                                                    Label("Delete Custom Style", systemImage: "trash")
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 .padding(.horizontal)
@@ -1322,6 +1373,27 @@ struct AddDrinkView: View {
                             }
                             .padding()
                             
+                            if !name.trimmingCharacters(in: .whitespaces).isEmpty {
+                                Divider().padding(.leading)
+                                Button(action: {
+                                    focusedField = nil
+                                    saveCustomDrink()
+                                }) {
+                                    HStack {
+                                        Image(systemName: "star.fill")
+                                            .foregroundStyle(.accent)
+                                        Text("Save as Custom Style")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.accent)
+                                        Spacer()
+                                        Image(systemName: "plus.circle.fill")
+                                            .foregroundStyle(.accent)
+                                    }
+                                    .padding()
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            
                             Divider().padding(.leading)
                             
                             let drink = DrinkEntry(drinkType: drinkType, alcoholContent: alcoholContent, volumeOz: volumeOz)
@@ -1361,6 +1433,9 @@ struct AddDrinkView: View {
             }
             .onTapGesture {
                 focusedField = nil
+            }
+            .onAppear {
+                customDrinks = CustomDrinkStorage.load()
             }
         }
     }
@@ -1410,6 +1485,47 @@ struct AddDrinkView: View {
                 await MainActor.run {
                     drink.locationName = venueName
                 }
+            }
+        }
+    }
+
+    private func saveCustomDrink() {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { return }
+
+        // Don't save if name matches an existing built-in subtype
+        let builtInNames = (AddDrinkView.subtypes[drinkType] ?? []).map { $0.name.lowercased() }
+        guard !builtInNames.contains(trimmedName.lowercased()) else { return }
+
+        // Don't save duplicates within the same category
+        let alreadyExists = customDrinks.contains {
+            $0.category == drinkType && $0.name.lowercased() == trimmedName.lowercased()
+        }
+        guard !alreadyExists else {
+            // Already exists — just select it
+            selectedSubtype = customDrinks.first {
+                $0.category == drinkType && $0.name.lowercased() == trimmedName.lowercased()
+            }?.name ?? trimmedName
+            return
+        }
+
+        let custom = CustomDrinkSubtype(category: drinkType, name: trimmedName, abv: alcoholContent, oz: volumeOz)
+        CustomDrinkStorage.add(custom)
+        customDrinks = CustomDrinkStorage.load()
+        selectedSubtype = trimmedName
+    }
+
+    private func isCustomDrink(name: String, category: String) -> Bool {
+        customDrinks.contains { $0.category == category && $0.name == name }
+    }
+
+    private func deleteCustomDrink(name: String, category: String) {
+        if let drink = customDrinks.first(where: { $0.category == category && $0.name == name }) {
+            CustomDrinkStorage.remove(id: drink.id)
+            customDrinks = CustomDrinkStorage.load()
+            if selectedSubtype == name {
+                selectedSubtype = "None"
+                updateDefaults(for: drinkType)
             }
         }
     }
