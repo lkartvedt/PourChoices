@@ -12,55 +12,175 @@ import MapKit
 import ActivityKit
 import UserNotifications
 
-struct SessionDetailDestination: Hashable {
-    let session: DrinkingSession
-}
-
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
     @Query private var userProfiles: [UserProfile]
-    
-    @State private var showingNewSession = false
+
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
-    @State private var showingSessionWarning = false
-    @State private var navigationPath = NavigationPath()
-    
+    @State private var selectedTab: Tab = .record
+
+    enum Tab { case history, stats, record, friends, profile }
+
     var activeSession: DrinkingSession? {
         sessions.first { $0.isActive }
     }
-    
+
     var userProfile: UserProfile {
         if let profile = userProfiles.first {
             return profile
         } else {
-            // Create default profile
             let newProfile = UserProfile()
             modelContext.insert(newProfile)
             return newProfile
         }
     }
-    
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            HistoryTab(sessions: sessions, userProfile: userProfile, deleteSessions: deleteSessions)
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                .tag(Tab.history)
+
+            StatsTab()
+                .tabItem { Label("Stats", systemImage: "chart.bar") }
+                .tag(Tab.stats)
+
+            RecordTab(activeSession: activeSession, userProfile: userProfile)
+                .tabItem { Label("Record", systemImage: "record.circle") }
+                .tag(Tab.record)
+
+            FriendsTab()
+                .tabItem { Label("Friends", systemImage: "person.2") }
+                .tag(Tab.friends)
+
+            ProfileTab(profile: userProfile)
+                .tabItem { Label("Profile", systemImage: "person.circle") }
+                .tag(Tab.profile)
+        }
+        .sheet(isPresented: $showingAgeVerification) {
+            AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
+                .interactiveDismissDisabled()
+        }
+        .sheet(isPresented: $showingOnboarding) {
+            OnboardingView(profile: userProfile)
+                .interactiveDismissDisabled()
+        }
+        .onAppear {
+            if !userProfile.hasCompletedAgeVerification {
+                showingAgeVerification = true
+            } else if !userProfile.hasCompletedOnboarding {
+                showingOnboarding = true
+            }
+        }
+    }
+
+    private func deleteSessions(offsets: IndexSet) {
+        withAnimation {
+            let inactiveSessions = sessions.filter { !$0.isActive }
+            for index in offsets {
+                modelContext.delete(inactiveSessions[index])
+            }
+        }
+    }
+}
+
+// MARK: - History Tab
+
+struct HistoryTab: View {
+    let sessions: [DrinkingSession]
+    let userProfile: UserProfile
+    let deleteSessions: (IndexSet) -> Void
+
+    var pastSessions: [DrinkingSession] { sessions.filter { !$0.isActive } }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if pastSessions.isEmpty {
+                    ContentUnavailableView(
+                        "No Sessions Yet",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Your past sessions will appear here")
+                    )
+                } else {
+                    List {
+                        ForEach(pastSessions) { session in
+                            NavigationLink {
+                                SessionDetailView(session: session, userProfile: userProfile)
+                            } label: {
+                                PastSessionRow(session: session, userProfile: userProfile)
+                            }
+                        }
+                        .onDelete(perform: deleteSessions)
+                    }
+                }
+            }
+            .navigationTitle("History")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - Stats Tab
+
+struct StatsTab: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView(
+                "Coming Soon",
+                systemImage: "chart.bar",
+                description: Text("Session statistics will appear here")
+            )
+            .navigationTitle("Stats")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - Record Tab
+
+struct RecordTab: View {
+    @Environment(\.modelContext) private var modelContext
+    let activeSession: DrinkingSession?
+    let userProfile: UserProfile
+
+    @State private var navigationPath = NavigationPath()
+    @State private var showingSessionWarning = false
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            VStack(spacing: 0) {
-                if let session = activeSession {
-                    // Show a card to navigate into the active session
-                    VStack(spacing: 10) {
-                        Image("Cheers")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(.top, 30)
-                        
+            ZStack {
+                // Map background showing current location
+                Map {
+                    UserAnnotation()
+                }
+                .mapStyle(.standard)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+                // Dark overlay for readability
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+
+                // Foreground content
+                VStack(spacing: 10) {
+                    Image("Cheers")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 180, height: 180)
+                        .padding(.top, 30)
+
+                    if let session = activeSession {
                         Text("Active Session")
                             .font(.title2)
                             .fontWeight(.semibold)
-                        
+                            .foregroundStyle(.white)
+
                         Text("You're currently tracking")
-                            .foregroundStyle(.secondary)
-                        
+                            .foregroundStyle(.white.opacity(0.8))
+
                         NavigationLink(value: session) {
                             Label("View Session", systemImage: "arrow.right.circle.fill")
                                 .font(.headline)
@@ -71,43 +191,16 @@ struct ContentView: View {
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
-                    }
-                    .padding(.bottom, 30)
-                    
-                    // Past sessions list
-                    if !sessions.isEmpty {
-                        List {
-                            Section("History") {
-                                ForEach(sessions.filter { !$0.isActive }) { session in
-                                    NavigationLink {
-                                        SessionDetailView(session: session, userProfile: userProfile)
-                                    } label: {
-                                        PastSessionRow(session: session, userProfile: userProfile)
-                                    }
-                                }
-                                .onDelete(perform: deleteSessions)
-                            }
-                        }
                     } else {
-                        Spacer()
-                    }
-                } else {
-                    // No active session - fixed header
-                    VStack(spacing: 10) {
-                        Image("Cheers")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(.top, 30)
-                        
                         Text("No Active Session")
                             .font(.title2)
                             .fontWeight(.semibold)
-                        
+                            .foregroundStyle(.white)
+
                         Text("Start tracking your night")
-                            .foregroundStyle(.secondary)
-                        
-                        Button(action: startNewSession) {
+                            .foregroundStyle(.white.opacity(0.8))
+
+                        Button(action: { showingSessionWarning = true }) {
                             Label("Start Session", systemImage: "play.fill")
                                 .font(.headline)
                                 .foregroundStyle(.black)
@@ -118,35 +211,9 @@ struct ContentView: View {
                         .padding(.horizontal, 40)
                         .padding(.top, 20)
                     }
-                    .padding(.bottom, 30)
-                    
-                    // Past sessions list
-                    if !sessions.isEmpty {
-                        List {
-                            Section("History") {
-                                ForEach(sessions.filter { !$0.isActive }) { session in
-                                    NavigationLink {
-                                        SessionDetailView(session: session, userProfile: userProfile)
-                                    } label: {
-                                        PastSessionRow(session: session, userProfile: userProfile)
-                                    }
-                                }
-                                .onDelete(perform: deleteSessions)
-                            }
-                        }
-                    } else {
-                        Spacer()
-                    }
+
+                    Spacer()
                 }
-            }
-            .navigationDestination(for: DrinkingSession.self) { session in
-                ActiveSessionView(session: session, userProfile: userProfile) { endedSession in
-                    navigationPath = NavigationPath()
-                    navigationPath.append(SessionDetailDestination(session: endedSession))
-                }
-            }
-            .navigationDestination(for: SessionDetailDestination.self) { destination in
-                SessionDetailView(session: destination.session, userProfile: userProfile)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -156,63 +223,55 @@ struct ContentView: View {
                         .scaledToFit()
                         .frame(height: 30)
                 }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        ProfileSettingsView(profile: userProfile)
-                    } label: {
-                        Image(systemName: "person.circle")
-                    }
+            }
+            .navigationDestination(for: DrinkingSession.self) { session in
+                ActiveSessionView(session: session, userProfile: userProfile) { _ in
+                    navigationPath = NavigationPath()
                 }
-            }
-            .sheet(isPresented: $showingAgeVerification) {
-                AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
-                    .interactiveDismissDisabled()
-            }
-            .sheet(isPresented: $showingOnboarding) {
-                OnboardingView(profile: userProfile)
-                    .interactiveDismissDisabled()
             }
             .alert("Safety Disclaimer", isPresented: $showingSessionWarning) {
-                Button("Accept") {
-                    createNewSession()
-                }
+                Button("Accept") { createNewSession() }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("DO NOT DRIVE after consuming any alcohol. BAC calculations are estimates based on user-provided data and may not be accurate. This app cannot determine your actual BAC or fitness to drive. Never use this app to decide if you are safe to drive. Always use a designated driver, rideshare, or public transportation.")
             }
-            .onAppear {
-                // Check if user needs age verification first
-                if !userProfile.hasCompletedAgeVerification {
-                    showingAgeVerification = true
-                } else if !userProfile.hasCompletedOnboarding {
-                    showingOnboarding = true
-                }
-            }
         }
     }
-    
-    private func startNewSession() {
-        showingSessionWarning = true
-    }
-    
+
     private func createNewSession() {
         let session = DrinkingSession()
         withAnimation {
             modelContext.insert(session)
-            // Navigate into the new session
             navigationPath.append(session)
         }
-        // Start a Live Activity for the new session (BAC starts at 0)
         LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
     }
-    
-    private func deleteSessions(offsets: IndexSet) {
-        withAnimation {
-            let inactiveSessions = sessions.filter { !$0.isActive }
-            for index in offsets {
-                modelContext.delete(inactiveSessions[index])
-            }
+}
+
+// MARK: - Friends Tab
+
+struct FriendsTab: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView(
+                "Coming Soon",
+                systemImage: "person.2",
+                description: Text("Connect with friends here")
+            )
+            .navigationTitle("Friends")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - Profile Tab
+
+struct ProfileTab: View {
+    @Bindable var profile: UserProfile
+
+    var body: some View {
+        NavigationStack {
+            ProfileSettingsView(profile: profile)
         }
     }
 }
@@ -496,6 +555,7 @@ struct ActiveSessionView: View {
         } message: {
             Text("Location access is required to log locations. Please enable location permissions in Settings > Privacy & Security > Location Services > Pour Choices.")
         }
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             setupLocationTracking()
             recalculateBAC()
