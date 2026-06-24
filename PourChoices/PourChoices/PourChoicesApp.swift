@@ -15,6 +15,16 @@ struct PourChoicesApp: App {
     @State private var showSplash = true
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // Force tab bar to always use dark appearance regardless of system setting
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor.black
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+        UITabBar.appearance().overrideUserInterfaceStyle = .dark
+    }
+
     /// If the app is killed while a session is active, we have no callback.
     /// Instead, we record the last time the app was in the foreground and on
     /// next launch close any session whose start is older than that timestamp

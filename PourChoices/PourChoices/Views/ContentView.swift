@@ -148,39 +148,59 @@ struct RecordTab: View {
 
     @State private var navigationPath = NavigationPath()
     @State private var showingSessionWarning = false
+    @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ZStack {
-                // Map background showing current location
-                Map {
+                // Map background showing current location — interactive
+                Map(position: $mapPosition) {
                     UserAnnotation()
+                        .mapOverlayLevel(level: .aboveRoads)
                 }
+                .tint(.blue)
                 .mapStyle(.standard)
+                .ignoresSafeArea()
+
+                // Black ombre: pure black at top, transparent by halfway — decorative only
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.8, y: 0.8)
+                )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
 
-                // Dark overlay for readability
-                Color.black.opacity(0.45)
-                    .ignoresSafeArea()
-
-                // Foreground content
+                // Content pinned to top and bottom; Spacer passes touches through to the map
                 VStack(spacing: 10) {
-                    Image("Cheers")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 180, height: 180)
-                        .padding(.top, 30)
+                    // Top text — sits over the dark gradient
+                    if let _ = activeSession {
+                        VStack(spacing: 4) {
+                            Text("Active Session")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            Text("You're currently tracking")
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .padding(.top, 10)
+                    } else {
+                        VStack(spacing: 4) {
+                            Text("No Active Session")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            Text("Start tracking your night")
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .padding(.top, 10)
+                    }
 
+                    Spacer()
+                        .allowsHitTesting(false)
+
+                    // Bottom button
                     if let session = activeSession {
-                        Text("Active Session")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-
-                        Text("You're currently tracking")
-                            .foregroundStyle(.white.opacity(0.8))
-
                         NavigationLink(value: session) {
                             Label("View Session", systemImage: "arrow.right.circle.fill")
                                 .font(.headline)
@@ -190,16 +210,8 @@ struct RecordTab: View {
                                 .background(Color.green, in: Capsule())
                         }
                         .padding(.horizontal, 40)
-                        .padding(.top, 20)
+                        .padding(.bottom, 40)
                     } else {
-                        Text("No Active Session")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.white)
-
-                        Text("Start tracking your night")
-                            .foregroundStyle(.white.opacity(0.8))
-
                         Button(action: { showingSessionWarning = true }) {
                             Label("Start Session", systemImage: "play.fill")
                                 .font(.headline)
@@ -209,10 +221,8 @@ struct RecordTab: View {
                                 .background(Color.accent, in: Capsule())
                         }
                         .padding(.horizontal, 40)
-                        .padding(.top, 20)
+                        .padding(.bottom, 40)
                     }
-
-                    Spacer()
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -2373,6 +2383,14 @@ struct OnboardingView: View {
     )
     container.mainContext.insert(profile)
     
+    // Mirror the UITabBar appearance override from PourChoicesApp.init()
+    let tabAppearance = UITabBarAppearance()
+    tabAppearance.configureWithOpaqueBackground()
+    tabAppearance.backgroundColor = UIColor.black
+    UITabBar.appearance().standardAppearance = tabAppearance
+    UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+    UITabBar.appearance().overrideUserInterfaceStyle = .dark
+
     return ContentView()
         .modelContainer(container)
         .preferredColorScheme(.dark)
