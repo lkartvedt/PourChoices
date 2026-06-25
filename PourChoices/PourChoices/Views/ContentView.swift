@@ -183,6 +183,24 @@ struct RecordTab: View {
     // Step 2: safety disclaimer (shown after location warning is dismissed or skipped)
     @State private var showingSessionWarning = false
     @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var mapStyleIndex: Int = 0
+
+    // Cycles through standard → satellite → hybrid
+    private var currentMapStyle: MapStyle {
+        switch mapStyleIndex % 3 {
+        case 0: return .standard
+        case 1: return .imagery
+        default: return .hybrid
+        }
+    }
+
+    private var mapStyleIconName: String {
+        switch mapStyleIndex % 3 {
+        case 0: return "square.3.layers.3d"
+        case 1: return "map"
+        default: return "square.3.layers.3d.slash"
+        }
+    }
 
     private var locationAuthorized: Bool {
         locationTracker.authorizationStatus == .authorizedWhenInUse ||
@@ -198,7 +216,7 @@ struct RecordTab: View {
                         .mapOverlayLevel(level: .aboveRoads)
                 }
                 .tint(.blue)
-                .mapStyle(.standard)
+                .mapStyle(currentMapStyle)
                 .ignoresSafeArea()
                 // When permission is granted (e.g. right after onboarding), snap the
                 // camera to the user's current position.
@@ -216,6 +234,34 @@ struct RecordTab: View {
                 )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+
+                // Map control buttons — bottom-right, above the main action button
+                VStack(spacing: 10) {
+                    // Cycle map style: standard → satellite → hybrid
+                    Button {
+                        mapStyleIndex += 1
+                    } label: {
+                        Image(systemName: mapStyleIconName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.accent)
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                    }
+
+                    // Re-center map on user location
+                    Button {
+                        mapPosition = .userLocation(fallback: .automatic)
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.blue)
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                    }
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 110)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
 
                 // Content pinned to top and bottom; Spacer passes touches through to the map
                 VStack(spacing: 10) {
@@ -280,6 +326,13 @@ struct RecordTab: View {
                         .frame(height: 30)
                 }
             }
+            .onAppear {
+                // Pre-warm the tracker so currentLocation is available by the
+                // time the user taps Start Session. Safe to call when already tracking.
+                if locationAuthorized {
+                    locationTracker.startTracking()
+                }
+            }
             .navigationDestination(for: RecordDestination.self) { destination in
                 switch destination {
                 case .activeSession(let session):
@@ -340,6 +393,43 @@ struct RecordTab: View {
             navigationPath.append(.activeSession(session))
         }
         LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
+
+        // Log session start location.
+        // If we already have a fix, insert the stop immediately and geocode in the background.
+        // If not (tracker just started), poll briefly — the OS usually delivers within 1-2s.
+        if locationAuthorized {
+            Task {
+                // Use the current fix if available, otherwise wait up to 5s for the first one.
+                var resolvedLocation = locationTracker.currentLocation
+                if resolvedLocation == nil {
+                    for _ in 0..<10 {
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s each, 5s total
+                        if locationTracker.currentLocation != nil {
+                            resolvedLocation = locationTracker.currentLocation
+                            break
+                        }
+                    }
+                }
+
+                guard let location = resolvedLocation else { return }
+
+                let startStop = LocationStop(
+                    locationName: "Loading...",
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude
+                )
+                await MainActor.run {
+                    session.locations.append(startStop)
+                    modelContext.insert(startStop)
+                }
+
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                await MainActor.run {
+                    startStop.locationName = venueName
+                    try? modelContext.save()
+                }
+            }
+        }
     }
 }
 
@@ -433,31 +523,32 @@ struct ActiveSessionView: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
-        
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
+
         // Add explicit location stops
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from drinks
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from food
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from water
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
@@ -674,106 +765,23 @@ struct ActiveSessionView: View {
         }
     }
     
-    /// Returns true if an automatic stop with this name already exists in the session.
-    private func isDuplicateAutoLocation(_ name: String) -> Bool {
-        session.locations.contains { !$0.isManualLog && $0.locationName == name }
-    }
-
     private func setupLocationTracking() {
-        // Set up callback for automatic location changes
-        locationTracker.onSignificantLocationChange = { location, venueName in
-            let stopName = venueName ?? "Unknown Location"
-            guard !self.isDuplicateAutoLocation(stopName) else {
-                print("Skipping duplicate auto location: \(stopName)")
-                return
-            }
-            let stop = LocationStop(
-                locationName: stopName,
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude
-            )
-            session.locations.append(stop)
-            modelContext.insert(stop)
-        }
-        
-        // Set up callback for when permission is first granted
-        locationTracker.onInitialPermissionGranted = { [weak locationTracker] in
-            guard let locationTracker = locationTracker else { return }
-            
-            // Log initial location after permission is granted
-            Task {
-                // Wait for location to be acquired
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-                
-                guard let location = locationTracker.currentLocation else {
-                    print("⚠️ No location available after permission granted")
-                    return
-                }
-                
-                let venueName = await locationTracker.getBestVenueName(for: location)
-                
-                await MainActor.run {
-                    guard !self.isDuplicateAutoLocation(venueName) else {
-                        print("Skipping duplicate initial location after permission: \(venueName)")
-                        return
-                    }
-                    let stop = LocationStop(
-                        locationName: venueName,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude
-                    )
-                    session.locations.append(stop)
-                    modelContext.insert(stop)
-                    print("Logged initial location after permission: \(venueName)")
-                }
-            }
-        }
-        
-        // Check authorization status first
+        // Only start the location manager so currentLocation stays fresh for
+        // drink/food/water coordinate capture. Automatic LocationStop entries
+        // are intentionally NOT created here — stops are only logged at:
+        //   • session start  (in createNewSession, RecordTab)
+        //   • session end    (in endSession)
+        //   • manual tap     (in addLocation)
+        locationTracker.onSignificantLocationChange = nil
+        locationTracker.onInitialPermissionGranted = nil
+
         let status = locationTracker.authorizationStatus
-        
         switch status {
-        case .notDetermined:
-            // Request permission - the delegate will handle starting tracking after permission is granted
-            locationTracker.requestPermission()
-            
         case .authorizedWhenInUse, .authorizedAlways:
-            // Permission already granted - start tracking immediately
             locationTracker.startTracking()
-            
-            // Log initial location after a short delay to ensure we have a location
-            Task {
-                // Wait a moment for location to be acquired
-                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-                
-                guard let location = locationTracker.currentLocation else {
-                    print("⚠️ No location available yet")
-                    return
-                }
-                
-                let venueName = await locationTracker.getBestVenueName(for: location)
-                
-                await MainActor.run {
-                    guard !self.isDuplicateAutoLocation(venueName) else {
-                        print("Skipping duplicate initial location: \(venueName)")
-                        return
-                    }
-                    let stop = LocationStop(
-                        locationName: venueName,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude
-                    )
-                    session.locations.append(stop)
-                    modelContext.insert(stop)
-                    print("Logged initial location: \(venueName)")
-                }
-            }
-            
         case .denied, .restricted:
-            // Show alert that location is denied
             showLocationPermissionAlert = true
-            
-        @unknown default:
+        default:
             break
         }
     }
@@ -1423,7 +1431,7 @@ struct AddDrinkView: View {
                                         Text("None")
                                             .font(.subheadline)
                                             .fontWeight(.medium)
-                                            .foregroundStyle(selectedSubtype == "None" ? Color.black : Color.primary)
+                                            .foregroundStyle(selectedSubtype == "None" ? Color.black : Color.accent)
                                             .padding(.horizontal, 16)
                                             .padding(.vertical, 8)
                                             .background(
@@ -1442,7 +1450,7 @@ struct AddDrinkView: View {
                                             Text(subtype.name)
                                                 .font(.subheadline)
                                                 .fontWeight(.medium)
-                                                .foregroundStyle(selectedSubtype == subtype.name ? Color.black : Color.primary)
+                                                .foregroundStyle(selectedSubtype == subtype.name ? Color.black : Color.accent)
                                                 .padding(.horizontal, 16)
                                                 .padding(.vertical, 8)
                                                 .background(
@@ -1475,7 +1483,7 @@ struct AddDrinkView: View {
                                             .foregroundStyle(isDouble ? Color.accent : Color.secondary)
                                         Text("Make it a double")
                                             .font(.subheadline)
-                                            .foregroundStyle(isDouble ? Color.primary : Color.secondary)
+                                            .foregroundStyle(isDouble ? Color.accent : Color.secondary)
                                     }
                                     .padding(.horizontal)
                                     .padding(.top, 12)
@@ -1769,7 +1777,7 @@ struct AddOtherView: View {
                                         Text("\(Int(mg))mg")
                                             .font(.subheadline)
                                             .fontWeight(.medium)
-                                            .foregroundStyle(zynStrength == mg ? Color.black : Color.primary)
+                                            .foregroundStyle(zynStrength == mg ? Color.black : Color.accent)
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 10)
                                             .background(
@@ -1791,7 +1799,7 @@ struct AddOtherView: View {
                                         .foregroundStyle(preferredZynMg == zynStrength ? Color.accent : Color.secondary)
                                     Text(preferredZynMg == zynStrength ? "Default strength" : "Set as my default")
                                         .font(.caption)
-                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.primary : Color.secondary)
+                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.accent : Color.secondary)
                                 }
                                 .padding(.horizontal)
                                 .padding(.top, 10)
@@ -1874,35 +1882,27 @@ struct PastSessionRow: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
-        
-        // Add explicit location stops
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from drinks
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from food
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from water
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
         return uniqueLocationNames.count
     }
     
@@ -1942,10 +1942,7 @@ struct SessionDetailView: View {
     let session: DrinkingSession
     let userProfile: UserProfile
     
-    @State private var mapRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-    )
+    @State private var mapPosition: MapCameraPosition = .automatic
     
     var peakBAC: Double {
         session.peakBAC
@@ -1957,23 +1954,24 @@ struct SessionDetailView: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
@@ -2010,15 +2008,32 @@ struct SessionDetailView: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    // All coordinates that should appear on the session map: explicit stops
+    // plus any drink coordinates that fall at a distinct location.
+    private var allMapCoordinates: [CLLocationCoordinate2D] {
+        var coords = sortedLocations.map { $0.coordinate }
+        for drink in session.drinks {
+            if let coord = drink.coordinate { coords.append(coord) }
+        }
+        return coords
+    }
+
     @ViewBuilder private var mapSection: some View {
-        if !sortedLocations.isEmpty {
+        let hasMapData = !sortedLocations.isEmpty || session.drinks.contains(where: { $0.coordinate != nil })
+        if hasMapData {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Route")
                     .font(.headline)
                     .padding(.horizontal)
-                Map(coordinateRegion: $mapRegion, annotationItems: sortedLocations) { location in
-                    MapAnnotation(coordinate: location.coordinate) {
-                        VStack(spacing: 4) {
+                Map(position: $mapPosition) {
+                    // Route line connecting stops in chronological order
+                    if sortedLocations.count > 1 {
+                        MapPolyline(coordinates: sortedLocations.map { $0.coordinate })
+                            .stroke(.blue.opacity(0.7), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round, dash: [6, 4]))
+                    }
+                    // Numbered / flagged stops (start, end, manual)
+                    ForEach(Array(sortedLocations.enumerated()), id: \.element.id) { index, location in
+                        Annotation(location.locationName ?? "Stop", coordinate: location.coordinate) {
                             ZStack {
                                 Circle()
                                     .fill(annotationColor(for: location))
@@ -2033,23 +2048,25 @@ struct SessionDetailView: View {
                                         .foregroundColor(.white)
                                         .font(.system(size: 14))
                                 } else {
-                                    Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
+                                    Text("\(index + 1)")
                                         .foregroundColor(.white)
                                         .font(.system(size: 14, weight: .bold))
                                 }
                             }
-                            Text(location.locationName ?? "Unknown")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color(.systemBackground))
-                                .cornerRadius(4)
+                        }
+                    }
+                    // Drink coordinates shown as small accent dots (not stop pins)
+                    ForEach(session.drinks.filter { $0.coordinate != nil }) { drink in
+                        Annotation(drink.locationName ?? drink.drinkType, coordinate: drink.coordinate!) {
+                            Circle()
+                                .fill(Color.accent.opacity(0.85))
+                                .frame(width: 12, height: 12)
                                 .shadow(radius: 2)
                         }
                     }
                 }
                 .frame(height: 300)
-                .cornerRadius(12)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
                 .onAppear { calculateMapRegion() }
             }
@@ -2247,26 +2264,31 @@ struct SessionDetailView: View {
     }
     
     private func calculateMapRegion() {
-        guard !sortedLocations.isEmpty else { return }
-        
-        let coordinates = sortedLocations.map { $0.coordinate }
-        
-        let minLat = coordinates.map { $0.latitude }.min() ?? 0
-        let maxLat = coordinates.map { $0.latitude }.max() ?? 0
-        let minLon = coordinates.map { $0.longitude }.min() ?? 0
-        let maxLon = coordinates.map { $0.longitude }.max() ?? 0
-        
+        let coordinates = allMapCoordinates
+        guard !coordinates.isEmpty else { return }
+
+        if coordinates.count == 1 {
+            mapPosition = .region(MKCoordinateRegion(
+                center: coordinates[0],
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))
+            return
+        }
+
+        let minLat = coordinates.map { $0.latitude }.min()!
+        let maxLat = coordinates.map { $0.latitude }.max()!
+        let minLon = coordinates.map { $0.longitude }.min()!
+        let maxLon = coordinates.map { $0.longitude }.max()!
+
         let center = CLLocationCoordinate2D(
             latitude: (minLat + maxLat) / 2,
             longitude: (minLon + maxLon) / 2
         )
-        
         let span = MKCoordinateSpan(
             latitudeDelta: max((maxLat - minLat) * 1.5, 0.01),
             longitudeDelta: max((maxLon - minLon) * 1.5, 0.01)
         )
-        
-        mapRegion = MKCoordinateRegion(center: center, span: span)
+        mapPosition = .region(MKCoordinateRegion(center: center, span: span))
     }
     
     private func durationText(from start: Date, to end: Date) -> String {
@@ -2326,7 +2348,7 @@ struct OnboardingView: View {
                             VStack(spacing: 16) {
                                 HStack {
                                     Text("Age")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     Text("\(profile.age)")
                                         .foregroundStyle(.secondary)
@@ -2336,7 +2358,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Height")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     HStack(spacing: 8) {
                                         Picker("", selection: $heightFeet) {
@@ -2363,7 +2385,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Weight (lbs)")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     TextField("150", value: $weight, format: .number)
                                         .keyboardType(.decimalPad)
@@ -2380,7 +2402,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Sex")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     Picker("Sex", selection: $sex) {
                                         Text("Male").tag("Male")

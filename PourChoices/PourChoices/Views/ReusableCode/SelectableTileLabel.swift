@@ -26,7 +26,7 @@ struct SelectableTileLabel: View {
                 Text(label)
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundStyle(isSelected ? Color.black : .primary)
+                    .foregroundStyle(isSelected ? Color.black : .accent)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)

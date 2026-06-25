@@ -9,6 +9,7 @@
 
 import Foundation
 import SwiftData
+import CoreLocation
 
 struct QuickAddHandler {
 
@@ -26,6 +27,12 @@ struct QuickAddHandler {
               let session = sessions.first(where: { $0.isActive })
         else { return }
 
+        // Grab the last known device location (cached by the OS — no delegate needed).
+        // This is fast and works as long as the app already has location permission,
+        // which it does by the time a session is active.
+        let clManager = CLLocationManager()
+        let currentLocation = clManager.location
+
         // Insert the entry.
         switch config.kind {
         case .drink:
@@ -33,10 +40,24 @@ struct QuickAddHandler {
                 drinkType: config.category,
                 subtype: config.subtype,
                 alcoholContent: config.abv ?? 5.0,
-                volumeOz: config.volumeOz ?? 12.0
+                volumeOz: config.volumeOz ?? 12.0,
+                latitude: currentLocation?.coordinate.latitude,
+                longitude: currentLocation?.coordinate.longitude
             )
             session.drinks.append(drink)
             context.insert(drink)
+
+            // Reverse-geocode the coordinates to get a venue/place name.
+            if let location = currentLocation {
+                Task {
+                    let locationTracker = LocationTracker()
+                    let venueName = await locationTracker.getBestVenueName(for: location)
+                    await MainActor.run {
+                        drink.locationName = venueName
+                        try? context.save()
+                    }
+                }
+            }
 
         case .nicotine:
             let entry = NicotineEntry(
