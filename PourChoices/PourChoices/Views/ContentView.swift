@@ -17,8 +17,6 @@ struct ContentView: View {
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
     @Query private var userProfiles: [UserProfile]
 
-    @State private var showingAgeVerification = false
-    @State private var showingOnboarding = false
     @State private var selectedTab: Tab = .record
 
     enum Tab { case history, stats, record, friends, profile }
@@ -58,21 +56,6 @@ struct ContentView: View {
             ProfileTab(profile: userProfile)
                 .tabItem { Label("Profile", systemImage: "person.circle") }
                 .tag(Tab.profile)
-        }
-        .sheet(isPresented: $showingAgeVerification) {
-            AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
-                .interactiveDismissDisabled()
-        }
-        .sheet(isPresented: $showingOnboarding) {
-            OnboardingView(profile: userProfile)
-                .interactiveDismissDisabled()
-        }
-        .onAppear {
-            if !userProfile.hasCompletedAgeVerification {
-                showingAgeVerification = true
-            } else if !userProfile.hasCompletedOnboarding {
-                showingOnboarding = true
-            }
         }
     }
 

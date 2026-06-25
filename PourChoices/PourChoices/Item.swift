@@ -195,14 +195,17 @@ final class UserProfile {
     var birthdate: Date? // User's birthdate for age verification
     var hasCompletedAgeVerification: Bool // Track if they've passed age verification
     var hasCompletedOnboarding: Bool // Track if they've gone through initial setup
-    
-    init(weight: Double = 150, heightInches: Double = 68, sex: String = "Male", birthdate: Date? = nil, hasCompletedAgeVerification: Bool = false, hasCompletedOnboarding: Bool = false) {
+    // Mirrors the auth state so we don't require AuthenticationManager in every view
+    var hasCompletedSignIn: Bool
+
+    init(weight: Double = 150, heightInches: Double = 68, sex: String = "Male", birthdate: Date? = nil, hasCompletedAgeVerification: Bool = false, hasCompletedOnboarding: Bool = false, hasCompletedSignIn: Bool = false) {
         self.weight = weight
         self.heightInches = heightInches
         self.sex = sex
         self.birthdate = birthdate
         self.hasCompletedAgeVerification = hasCompletedAgeVerification
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.hasCompletedSignIn = hasCompletedSignIn
     }
     
     // Computed property for age

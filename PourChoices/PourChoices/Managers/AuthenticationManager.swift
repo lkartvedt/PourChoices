@@ -1,0 +1,210 @@
+import Foundation
+import AuthenticationServices
+import CryptoKit
+
+// MARK: - Auth State
+
+enum AuthState: Equatable {
+    case unknown
+    case signedOut
+    case signedIn(userID: String, displayName: String?, email: String?)
+}
+
+// MARK: - Auth Error
+
+enum AuthError: LocalizedError {
+    case cancelled
+    case credentialInvalid
+    case unknown(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .cancelled: return "Sign-in was cancelled."
+        case .credentialInvalid: return "The credential was invalid. Please try again."
+        case .unknown(let e): return e.localizedDescription
+        }
+    }
+}
+
+// MARK: - AuthenticationManager
+
+@Observable
+final class AuthenticationManager: NSObject {
+
+    // MARK: Persistence keys (stored in App Group so extensions can read if needed)
+    private enum Keys {
+        static let userID      = "auth.userID"
+        static let displayName = "auth.displayName"
+        static let email       = "auth.email"
+        static let provider    = "auth.provider"
+    }
+
+    private let defaults = UserDefaults(suiteName: "group.com.lkartvedt.PourChoices")!
+
+    var state: AuthState = .unknown
+
+    // Continuation held during the ASAuthorization flow
+    private var signInContinuation: CheckedContinuation<AuthState, Error>?
+    // Nonce used for Sign in with Apple OIDC verification
+    private var currentNonce: String?
+
+    override init() {
+        super.init()
+        restoreSession()
+    }
+
+    // MARK: - Session Restore
+
+    private func restoreSession() {
+        guard let userID = defaults.string(forKey: Keys.userID) else {
+            state = .signedOut
+            return
+        }
+        // Re-verify the credential is still valid with Apple's credential state check.
+        let provider = ASAuthorizationAppleIDProvider()
+        provider.getCredentialState(forUserID: userID) { [weak self] credentialState, _ in
+            DispatchQueue.main.async {
+                switch credentialState {
+                case .authorized:
+                    let name  = self?.defaults.string(forKey: Keys.displayName)
+                    let email = self?.defaults.string(forKey: Keys.email)
+                    self?.state = .signedIn(userID: userID, displayName: name, email: email)
+                default:
+                    // Credential revoked or not found — force sign-out
+                    self?.clearPersistedSession()
+                    self?.state = .signedOut
+                }
+            }
+        }
+    }
+
+    // MARK: - Sign In with Apple
+
+    @MainActor
+    func signInWithApple() async throws {
+        let nonce = randomNonce()
+        currentNonce = nonce
+
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = sha256(nonce)
+
+        let _: AuthState = try await withCheckedThrowingContinuation { continuation in
+            self.signInContinuation = continuation
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    // MARK: - Sign Out
+
+    func signOut() {
+        clearPersistedSession()
+        state = .signedOut
+    }
+
+    // MARK: - Helpers
+
+    private func persistSession(userID: String, displayName: String?, email: String?, provider: String) {
+        defaults.set(userID,      forKey: Keys.userID)
+        defaults.set(displayName, forKey: Keys.displayName)
+        defaults.set(email,       forKey: Keys.email)
+        defaults.set(provider,    forKey: Keys.provider)
+    }
+
+    private func clearPersistedSession() {
+        [Keys.userID, Keys.displayName, Keys.email, Keys.provider].forEach {
+            defaults.removeObject(forKey: $0)
+        }
+    }
+
+    // MARK: - Nonce
+
+    // Generates a cryptographically random nonce for OIDC replay protection.
+    private func randomNonce(length: Int = 32) -> String {
+        precondition(length > 0)
+        var randomBytes = [UInt8](repeating: 0, count: length)
+        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        guard errorCode == errSecSuccess else {
+            fatalError("Unable to generate nonce: \(errorCode)")
+        }
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        return String(randomBytes.map { charset[Int($0) % charset.count] })
+    }
+
+    private func sha256(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+
+extension AuthenticationManager: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let appleID = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            signInContinuation?.resume(throwing: AuthError.credentialInvalid)
+            signInContinuation = nil
+            return
+        }
+
+        let userID = appleID.user
+        // Apple only returns name/email on the very first sign-in.
+        let firstName = appleID.fullName?.givenName
+        let lastName  = appleID.fullName?.familyName
+        let displayName: String? = {
+            let parts = [firstName, lastName].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }()
+        let email = appleID.email
+
+        // Persist — fall back to previously stored values if Apple returns nil
+        let storedName  = defaults.string(forKey: Keys.displayName)
+        let storedEmail = defaults.string(forKey: Keys.email)
+        persistSession(
+            userID: userID,
+            displayName: displayName ?? storedName,
+            email: email ?? storedEmail,
+            provider: "apple"
+        )
+
+        let newState = AuthState.signedIn(
+            userID: userID,
+            displayName: displayName ?? storedName,
+            email: email ?? storedEmail
+        )
+        state = newState
+        signInContinuation?.resume(returning: newState)
+        signInContinuation = nil
+        currentNonce = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        let authErr: AuthError
+        if let asError = error as? ASAuthorizationError, asError.code == .canceled {
+            authErr = .cancelled
+        } else {
+            authErr = .unknown(error)
+        }
+        signInContinuation?.resume(throwing: authErr)
+        signInContinuation = nil
+        currentNonce = nil
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+
+extension AuthenticationManager: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        // Find the key window to anchor the sheet
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        return scene?.windows.first(where: { $0.isKeyWindow }) ?? UIWindow()
+    }
+}

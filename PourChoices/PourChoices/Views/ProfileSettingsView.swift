@@ -10,14 +10,16 @@ import SwiftUI
 struct ProfileSettingsView: View {
     @Bindable var profile: UserProfile
     @FocusState private var isWeightFocused: Bool
-    
+    @Environment(AuthenticationManager.self) private var auth
+
     // Quick-add button config state — loaded from shared App Group defaults
     @State private var button1Config: QuickAddButtonConfig = SharedDefaults.loadButton(slot: 1)
     @State private var button2Config: QuickAddButtonConfig = SharedDefaults.loadButton(slot: 2)
     @State private var showingButton1Picker = false
     @State private var showingButton2Picker = false
     @State private var showingNotificationSettings = false
-    
+    @State private var showingSignOutConfirmation = false
+
     @Environment(\.openURL) private var openURL
     
     var heightFeet: Int {
@@ -224,8 +226,26 @@ struct ProfileSettingsView: View {
                 }
                 .foregroundStyle(.secondary)
             }
+
+            Section {
+                Button(role: .destructive) {
+                    showingSignOutConfirmation = true
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Sign Out")
+                        Spacer()
+                    }
+                }
+            }
         }
         .navigationTitle("Profile")
+        .confirmationDialog("Sign Out", isPresented: $showingSignOutConfirmation, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { auth.signOut() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You will need to sign in again to access PourChoices.")
+        }
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture {

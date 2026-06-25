@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A65AB7B62FEBD1DD00AA5CC4 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65AB7B52FEBD1DD00AA5CC4 /* StoreKit.framework */; };
 		A65EA3652FDB9C64003BCA77 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */; };
 		A65EA3672FDB9C64003BCA77 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */; };
 		A65EA3782FDB9C65003BCA77 /* PourChoicesLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -51,6 +52,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A65AB7B52FEBD1DD00AA5CC4 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		A65EA3622FDB9C64003BCA77 /* PourChoicesLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PourChoicesLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -128,6 +130,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A65AB7B62FEBD1DD00AA5CC4 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -151,6 +154,7 @@
 		A65EA3632FDB9C64003BCA77 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				A65AB7B52FEBD1DD00AA5CC4 /* StoreKit.framework */,
 				A65EA3642FDB9C64003BCA77 /* WidgetKit.framework */,
 				A65EA3662FDB9C64003BCA77 /* SwiftUI.framework */,
 			);

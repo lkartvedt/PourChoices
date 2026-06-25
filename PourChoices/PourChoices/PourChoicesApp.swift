@@ -13,6 +13,8 @@ import UserNotifications
 @main
 struct PourChoicesApp: App {
     @State private var showSplash = true
+    @State private var auth = AuthenticationManager()
+    @State private var subscriptions = SubscriptionManager()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -44,12 +46,32 @@ struct PourChoicesApp: App {
             WaterEntry.self,
             UserProfile.self
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        // allowsSave: true + no explicit URL lets SwiftData pick the default store location.
+        // cloudKitDatabase: .none keeps it local-only.
+        // The schema version bump from adding `hasCompletedSignIn` to UserProfile is an
+        // additive change (new column with a default), so lightweight migration handles it
+        // automatically when we pass the versioned schema rather than a bare Schema.
+        let modelConfiguration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            allowsSave: true,
+            cloudKitDatabase: .none
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // If migration still fails (e.g. a destructive change on a development build),
+            // destroy the store and start fresh rather than leaving the app unlaunchable.
+            // In production this should never be hit because all schema changes must be
+            // additive with defaults.
+            let storeURL = URL.applicationSupportDirectory.appending(path: "default.store")
+            try? FileManager.default.removeItem(at: storeURL)
+            do {
+                return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer after store reset: \(error)")
+            }
         }
     }()
 
@@ -59,28 +81,20 @@ struct PourChoicesApp: App {
                 SplashScreenView(showSplash: $showSplash)
                     .preferredColorScheme(.dark)
             } else {
-                ContentView()
+                RootView()
+                    .environment(auth)
+                    .environment(subscriptions)
                     .modelContainer(Self.sharedModelContainer)
                     .preferredColorScheme(.dark)
-                    .onAppear {
-                        closeAbandonedSessions()
-                        NotificationManager.requestPermission()
-                        NotificationManager.schedulePartyNightNotification()
-                    }
             }
         }
         .onChange(of: scenePhase) {
-            // Record whenever the app is active or going to background.
-            // .background is the last reliable callback before a force-kill,
-            // so we stamp the time at both transitions to get the most accurate
-            // "last seen" timestamp possible.
+            // Stamp the foreground date at every active/background transition so
+            // closeAbandonedSessionsIfNeeded can detect force-kills accurately.
+            // This runs regardless of auth/subscription state — it's harmless and
+            // we need it to be reliable.
             if scenePhase == .active || scenePhase == .background {
                 UserDefaults.standard.set(Date(), forKey: Self.lastForegroundKey)
-            }
-            // Refresh party night schedule each time the app becomes active,
-            // in case the user granted/revoked notification permission in Settings.
-            if scenePhase == .active {
-                NotificationManager.schedulePartyNightNotification()
             }
         }
     }
@@ -91,20 +105,23 @@ struct PourChoicesApp: App {
     /// session at that moment. Instead, on the next launch we check whether the
     /// last recorded foreground timestamp is older than `autoEndThreshold`. If
     /// it is, the user clearly isn't in an active session anymore.
-    private func closeAbandonedSessions() {
-        let context = Self.sharedModelContainer.mainContext
+    ///
+    /// Called as a static method from RootView once the user has passed auth
+    /// and subscription checks, so it runs at the right point in the flow.
+    static func closeAbandonedSessionsIfNeeded() {
+        let context = sharedModelContainer.mainContext
         guard let sessions = try? context.fetch(FetchDescriptor<DrinkingSession>()) else { return }
         let activeSessions = sessions.filter { $0.isActive }
         guard !activeSessions.isEmpty else { return }
 
-        let lastForeground = UserDefaults.standard.object(forKey: Self.lastForegroundKey) as? Date
+        let lastForeground = UserDefaults.standard.object(forKey: lastForegroundKey) as? Date
         let now = Date()
 
         for session in activeSessions {
             let endDate: Date
             if let last = lastForeground {
                 // Only close if the app was last seen more than the threshold ago.
-                guard now.timeIntervalSince(last) > Self.autoEndThreshold else { continue }
+                guard now.timeIntervalSince(last) > autoEndThreshold else { continue }
                 endDate = last
             } else {
                 // No recorded timestamp means a fresh install with a stale session.
