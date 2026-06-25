@@ -116,7 +116,10 @@ final class SubscriptionManager {
                     return
                 }
                 await transaction.finish()
-                await refreshSubscriptionStatus()
+                // Set state directly from this transaction — don't re-query
+                // currentEntitlements, which may not reflect the purchase yet
+                // in sandbox/testing environments.
+                applyTransaction(transaction)
             case .userCancelled:
                 break
             case .pending:
@@ -127,6 +130,26 @@ final class SubscriptionManager {
             }
         } catch {
             purchaseError = error.localizedDescription
+        }
+    }
+
+    /// Derives subscription state from a single known-good transaction.
+    @MainActor
+    private func applyTransaction(_ transaction: Transaction) {
+        guard transaction.productID == SubscriptionProductID.sixMonth else { return }
+
+        if transaction.revocationDate != nil {
+            subscriptionState = .expired
+            return
+        }
+        if let offerType = transaction.offer?.type, offerType == .introductory {
+            subscriptionState = .inTrial
+            return
+        }
+        if let expDate = transaction.expirationDate, expDate > Date() {
+            subscriptionState = .subscribed
+        } else {
+            subscriptionState = .expired
         }
     }
 
@@ -152,7 +175,7 @@ final class SubscriptionManager {
         for await result in Transaction.updates {
             guard case .verified(let transaction) = result else { continue }
             await transaction.finish()
-            await MainActor.run { Task { await refreshSubscriptionStatus() } }
+            await MainActor.run { self.applyTransaction(transaction) }
         }
     }
 

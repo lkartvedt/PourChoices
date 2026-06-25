@@ -9,15 +9,24 @@ import SwiftUI
 import SwiftData
 import ActivityKit
 import UserNotifications
+import FirebaseCore
 
 @main
 struct PourChoicesApp: App {
+
     @State private var showSplash = true
-    @State private var auth = AuthenticationManager()
-    @State private var subscriptions = SubscriptionManager()
+    @State private var auth: AuthenticationManager
+    @State private var subscriptions: SubscriptionManager
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Firebase must be configured before any FirebaseAuth calls.
+        // AuthenticationManager calls Auth.auth() in its init, so configure first.
+        FirebaseApp.configure()
+
+        _auth = State(initialValue: AuthenticationManager())
+        _subscriptions = State(initialValue: SubscriptionManager())
+
         // Force tab bar to always use dark appearance regardless of system setting
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()

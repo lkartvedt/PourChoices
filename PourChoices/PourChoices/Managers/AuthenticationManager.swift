@@ -1,6 +1,7 @@
 import Foundation
 import AuthenticationServices
 import CryptoKit
+import FirebaseAuth
 
 // MARK: - Auth State
 
@@ -42,10 +43,10 @@ final class AuthenticationManager: NSObject {
     private let defaults = UserDefaults(suiteName: "group.com.lkartvedt.PourChoices")!
 
     var state: AuthState = .unknown
+    // Firebase UID -- used as the key for all Firestore documents
+    private(set) var firebaseUID: String? = nil
 
-    // Continuation held during the ASAuthorization flow
     private var signInContinuation: CheckedContinuation<AuthState, Error>?
-    // Nonce used for Sign in with Apple OIDC verification
     private var currentNonce: String?
 
     override init() {
@@ -56,11 +57,15 @@ final class AuthenticationManager: NSObject {
     // MARK: - Session Restore
 
     private func restoreSession() {
+        // Restore Firebase session first
+        if let firebaseUser = Auth.auth().currentUser {
+            firebaseUID = firebaseUser.uid
+        }
+
         guard let userID = defaults.string(forKey: Keys.userID) else {
             state = .signedOut
             return
         }
-        // Re-verify the credential is still valid with Apple's credential state check.
         let provider = ASAuthorizationAppleIDProvider()
         provider.getCredentialState(forUserID: userID) { [weak self] credentialState, _ in
             DispatchQueue.main.async {
@@ -70,7 +75,6 @@ final class AuthenticationManager: NSObject {
                     let email = self?.defaults.string(forKey: Keys.email)
                     self?.state = .signedIn(userID: userID, displayName: name, email: email)
                 default:
-                    // Credential revoked or not found — force sign-out
                     self?.clearPersistedSession()
                     self?.state = .signedOut
                 }
@@ -101,8 +105,34 @@ final class AuthenticationManager: NSObject {
     // MARK: - Sign Out
 
     func signOut() {
+        try? Auth.auth().signOut()
+        firebaseUID = nil
         clearPersistedSession()
         state = .signedOut
+    }
+
+    // MARK: - Firebase Sign In
+
+    private func signInToFirebase(credential: ASAuthorizationAppleIDCredential) async {
+        guard
+            let nonce = currentNonce,
+            let appleIDToken = credential.identityToken,
+            let tokenString = String(data: appleIDToken, encoding: .utf8)
+        else { return }
+
+        let firebaseCredential = OAuthProvider.appleCredential(
+            withIDToken: tokenString,
+            rawNonce: nonce,
+            fullName: credential.fullName
+        )
+
+        do {
+            let result = try await Auth.auth().signIn(with: firebaseCredential)
+            await MainActor.run { self.firebaseUID = result.user.uid }
+        } catch {
+            // Firebase sign-in failure is non-fatal -- local Apple auth still succeeds
+            print("[AuthenticationManager] Firebase sign-in failed: \(error)")
+        }
     }
 
     // MARK: - Helpers
@@ -122,7 +152,6 @@ final class AuthenticationManager: NSObject {
 
     // MARK: - Nonce
 
-    // Generates a cryptographically random nonce for OIDC replay protection.
     private func randomNonce(length: Int = 32) -> String {
         precondition(length > 0)
         var randomBytes = [UInt8](repeating: 0, count: length)
@@ -153,7 +182,6 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
         }
 
         let userID = appleID.user
-        // Apple only returns name/email on the very first sign-in.
         let firstName = appleID.fullName?.givenName
         let lastName  = appleID.fullName?.familyName
         let displayName: String? = {
@@ -162,7 +190,6 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
         }()
         let email = appleID.email
 
-        // Persist — fall back to previously stored values if Apple returns nil
         let storedName  = defaults.string(forKey: Keys.displayName)
         let storedEmail = defaults.string(forKey: Keys.email)
         persistSession(
@@ -180,6 +207,9 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
         state = newState
         signInContinuation?.resume(returning: newState)
         signInContinuation = nil
+
+        // Sign into Firebase with the same Apple credential
+        Task { await signInToFirebase(credential: appleID) }
         currentNonce = nil
     }
 
@@ -201,7 +231,6 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
 
 extension AuthenticationManager: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        // Find the key window to anchor the sheet
         let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }
