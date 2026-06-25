@@ -9,6 +9,10 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var userProfiles: [UserProfile]
 
+    // Single LocationTracker instance shared across OnboardingView and RecordTab
+    // so the map reacts the moment location permission is granted during onboarding.
+    @State private var locationTracker = LocationTracker()
+
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
 
@@ -43,20 +47,19 @@ struct RootView: View {
                     }
                     .task { await subscriptions.loadProductAndStatus() }
                 } else if subscriptions.hasAccess {
-                    ContentView()
+                    ContentView(locationTracker: locationTracker)
                         .sheet(isPresented: $showingAgeVerification) {
                             AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
                                 .interactiveDismissDisabled()
                         }
                         .sheet(isPresented: $showingOnboarding) {
-                            OnboardingView(profile: userProfile)
+                            OnboardingView(profile: userProfile, locationTracker: locationTracker)
                                 .interactiveDismissDisabled()
                         }
                         .onAppear {
-                            // Only request permissions and start background work after the
-                            // user has signed in and their subscription is confirmed.
                             PourChoicesApp.closeAbandonedSessionsIfNeeded()
-                            NotificationManager.requestPermission()
+                            // Notification permission is deferred until the user taps
+                            // "Start Session" for the first time (handled in RecordTab).
                             NotificationManager.schedulePartyNightNotification()
 
                             if !userProfile.hasCompletedAgeVerification {

@@ -17,6 +17,10 @@ struct ContentView: View {
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
     @Query private var userProfiles: [UserProfile]
 
+    // Passed in from RootView so the same tracker instance that received
+    // permission during onboarding drives the map here immediately.
+    var locationTracker: LocationTracker
+
     @State private var selectedTab: Tab = .record
 
     enum Tab { case history, stats, record, friends, profile }
@@ -45,7 +49,7 @@ struct ContentView: View {
                 .tabItem { Label("Stats", systemImage: "chart.bar") }
                 .tag(Tab.stats)
 
-            RecordTab(activeSession: activeSession, userProfile: userProfile)
+            RecordTab(activeSession: activeSession, userProfile: userProfile, locationTracker: locationTracker)
                 .tabItem { Label("Record", systemImage: "record.circle") }
                 .tag(Tab.record)
 
@@ -128,10 +132,21 @@ struct RecordTab: View {
     @Environment(\.modelContext) private var modelContext
     let activeSession: DrinkingSession?
     let userProfile: UserProfile
+    // Shared tracker from RootView — already holds location permission state
+    // granted during onboarding, so the map loads immediately if allowed.
+    var locationTracker: LocationTracker
 
     @State private var navigationPath = NavigationPath()
+    // Step 1: warn about missing location before the safety disclaimer
+    @State private var showingLocationWarning = false
+    // Step 2: safety disclaimer (shown after location warning is dismissed or skipped)
     @State private var showingSessionWarning = false
     @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+
+    private var locationAuthorized: Bool {
+        locationTracker.authorizationStatus == .authorizedWhenInUse ||
+        locationTracker.authorizationStatus == .authorizedAlways
+    }
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -144,6 +159,13 @@ struct RecordTab: View {
                 .tint(.blue)
                 .mapStyle(.standard)
                 .ignoresSafeArea()
+                // When permission is granted (e.g. right after onboarding), snap the
+                // camera to the user's current position.
+                .onChange(of: locationTracker.authorizationStatus) { _, newStatus in
+                    if newStatus == .authorizedWhenInUse || newStatus == .authorizedAlways {
+                        mapPosition = .userLocation(fallback: .automatic)
+                    }
+                }
 
                 // Black ombre: pure black at top, transparent by halfway — decorative only
                 LinearGradient(
@@ -195,7 +217,7 @@ struct RecordTab: View {
                         .padding(.horizontal, 40)
                         .padding(.bottom, 40)
                     } else {
-                        Button(action: { showingSessionWarning = true }) {
+                        Button(action: handleStartSessionTap) {
                             Label("Start Session", systemImage: "play.fill")
                                 .font(.headline)
                                 .foregroundStyle(.black)
@@ -222,6 +244,22 @@ struct RecordTab: View {
                     navigationPath = NavigationPath()
                 }
             }
+            // Location warning — shown first when location access is missing
+            .alert("Location Access Off", isPresented: $showingLocationWarning) {
+                Button("Enable in Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Continue Anyway") {
+                    // User acknowledged — proceed to the safety disclaimer
+                    showingSessionWarning = true
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Without location access the map won't show your position and bar hops won't be logged automatically. You can enable it in Settings > Privacy & Security > Location Services > PourChoices.")
+            }
+            // Safety disclaimer — shown after location check passes
             .alert("Safety Disclaimer", isPresented: $showingSessionWarning) {
                 Button("Accept") { createNewSession() }
                 Button("Cancel", role: .cancel) { }
@@ -231,7 +269,21 @@ struct RecordTab: View {
         }
     }
 
+    // Called when the user taps "Start Session"
+    private func handleStartSessionTap() {
+        if locationAuthorized {
+            showingSessionWarning = true
+        } else {
+            showingLocationWarning = true
+        }
+    }
+
     private func createNewSession() {
+        // Request notification permission the first time a session is created —
+        // after the user has chosen to start tracking, which is the right moment
+        // to explain why we need notifications.
+        NotificationManager.requestPermission()
+
         let session = DrinkingSession()
         withAnimation {
             modelContext.insert(session)
@@ -2179,6 +2231,8 @@ struct SessionDetailView: View {
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var profile: UserProfile
+    // Shared tracker passed from RootView so the map reacts immediately when permission is granted
+    var locationTracker: LocationTracker
     
     @State private var weight: Double = 150
     @State private var heightFeet: Int = 5
@@ -2341,12 +2395,16 @@ struct OnboardingView: View {
         profile.heightInches = totalHeightInches
         profile.sex = sex
         profile.hasCompletedOnboarding = true
+        // Ask for location right after the user finishes setting up their profile
+        // so the home map can load their position immediately.
+        locationTracker.requestPermission()
         dismiss()
     }
     
     private func skipOnboarding() {
         focusedField = nil
         profile.hasCompletedOnboarding = true
+        locationTracker.requestPermission()
         dismiss()
     }
 }
@@ -2354,8 +2412,6 @@ struct OnboardingView: View {
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: DrinkingSession.self, UserProfile.self, configurations: config)
-    
-    // Create a pre-configured profile
     let profile = UserProfile(
         weight: 170,
         heightInches: 70,
@@ -2365,16 +2421,13 @@ struct OnboardingView: View {
         hasCompletedOnboarding: true
     )
     container.mainContext.insert(profile)
-    
-    // Mirror the UITabBar appearance override from PourChoicesApp.init()
     let tabAppearance = UITabBarAppearance()
     tabAppearance.configureWithOpaqueBackground()
     tabAppearance.backgroundColor = UIColor.black
     UITabBar.appearance().standardAppearance = tabAppearance
     UITabBar.appearance().scrollEdgeAppearance = tabAppearance
     UITabBar.appearance().overrideUserInterfaceStyle = .dark
-
-    return ContentView()
+    return ContentView(locationTracker: LocationTracker())
         .modelContainer(container)
         .preferredColorScheme(.dark)
 }
