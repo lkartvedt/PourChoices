@@ -25,6 +25,9 @@ struct ContentView: View {
     // History tab's navigation path is lifted here so RecordTab can push a
     // session detail into it when a session ends.
     @State private var historyPath: [DrinkingSession] = []
+    // Record tab's navigation path is lifted here so the widget URL handler
+    // can push the active session without needing to reach into RecordTab.
+    @State private var recordPath: [RecordDestination] = []
 
     enum Tab { case history, stats, record, friends, profile }
 
@@ -65,7 +68,8 @@ struct ContentView: View {
                     // Switch to History tab and push the detail page for the ended session.
                     historyPath = [session]
                     selectedTab = .history
-                }
+                },
+                navigationPath: $recordPath
             )
             .tabItem { Label("Record", systemImage: "record.circle") }
             .tag(Tab.record)
@@ -77,6 +81,14 @@ struct ContentView: View {
             ProfileTab(profile: userProfile)
                 .tabItem { Label("Profile", systemImage: "person.circle") }
                 .tag(Tab.profile)
+        }
+        .onOpenURL { url in
+            // Launched from the Live Activity widget — go straight to the active session.
+            guard url.scheme == "pourchocies",
+                  url.host == "active-session",
+                  let session = activeSession else { return }
+            selectedTab = .record
+            recordPath = [.activeSession(session)]
         }
     }
 
@@ -101,7 +113,7 @@ struct HistoryTab: View {
     var pastSessions: [DrinkingSession] { sessions.filter { !$0.isActive } }
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        NavigationStack(path: $navigationPath) { // path bound to ContentView.recordPath
             Group {
                 if pastSessions.isEmpty {
                     ContentUnavailableView(
@@ -164,8 +176,8 @@ struct RecordTab: View {
     var locationTracker: LocationTracker
     // Called by ContentView to switch tabs and push the detail into History.
     var onSessionEnded: (DrinkingSession) -> Void
-
-    @State private var navigationPath: [RecordDestination] = []
+    // Bound to ContentView so the URL handler can push the active session here.
+    @Binding var navigationPath: [RecordDestination]
     // Step 1: warn about missing location before the safety disclaimer
     @State private var showingLocationWarning = false
     // Step 2: safety disclaimer (shown after location warning is dismissed or skipped)

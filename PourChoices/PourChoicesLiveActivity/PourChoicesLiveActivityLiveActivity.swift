@@ -79,6 +79,8 @@ struct PourChoicesLiveActivityLiveActivity: Widget {
         .padding(.vertical, 14)
         .background(Color.black)
         .colorScheme(.dark)
+        // Tapping anywhere on the lock screen banner opens the active session.
+        .widgetURL(URL(string: "pourchocies://active-session"))
     }
 
     // MARK: - Quick Add Button
