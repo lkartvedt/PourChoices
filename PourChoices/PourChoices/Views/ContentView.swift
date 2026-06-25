@@ -22,6 +22,9 @@ struct ContentView: View {
     var locationTracker: LocationTracker
 
     @State private var selectedTab: Tab = .record
+    // History tab's navigation path is lifted here so RecordTab can push a
+    // session detail into it when a session ends.
+    @State private var historyPath: [DrinkingSession] = []
 
     enum Tab { case history, stats, record, friends, profile }
 
@@ -41,17 +44,31 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HistoryTab(sessions: sessions, userProfile: userProfile, deleteSessions: deleteSessions)
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
-                .tag(Tab.history)
+            HistoryTab(
+                sessions: sessions,
+                userProfile: userProfile,
+                deleteSessions: deleteSessions,
+                navigationPath: $historyPath
+            )
+            .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+            .tag(Tab.history)
 
             StatsTab()
                 .tabItem { Label("Stats", systemImage: "chart.bar") }
                 .tag(Tab.stats)
 
-            RecordTab(activeSession: activeSession, userProfile: userProfile, locationTracker: locationTracker)
-                .tabItem { Label("Record", systemImage: "record.circle") }
-                .tag(Tab.record)
+            RecordTab(
+                activeSession: activeSession,
+                userProfile: userProfile,
+                locationTracker: locationTracker,
+                onSessionEnded: { session in
+                    // Switch to History tab and push the detail page for the ended session.
+                    historyPath = [session]
+                    selectedTab = .history
+                }
+            )
+            .tabItem { Label("Record", systemImage: "record.circle") }
+            .tag(Tab.record)
 
             FriendsTab()
                 .tabItem { Label("Friends", systemImage: "person.2") }
@@ -79,11 +96,12 @@ struct HistoryTab: View {
     let sessions: [DrinkingSession]
     let userProfile: UserProfile
     let deleteSessions: (IndexSet) -> Void
+    @Binding var navigationPath: [DrinkingSession]
 
     var pastSessions: [DrinkingSession] { sessions.filter { !$0.isActive } }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if pastSessions.isEmpty {
                     ContentUnavailableView(
@@ -94,9 +112,7 @@ struct HistoryTab: View {
                 } else {
                     List {
                         ForEach(pastSessions) { session in
-                            NavigationLink {
-                                SessionDetailView(session: session, userProfile: userProfile)
-                            } label: {
+                            NavigationLink(value: session) {
                                 PastSessionRow(session: session, userProfile: userProfile)
                             }
                         }
@@ -106,6 +122,9 @@ struct HistoryTab: View {
             }
             .navigationTitle("History")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: DrinkingSession.self) { session in
+                SessionDetailView(session: session, userProfile: userProfile)
+            }
         }
     }
 }
@@ -128,6 +147,14 @@ struct StatsTab: View {
 
 // MARK: - Record Tab
 
+// Typed navigation destinations within the Record tab's NavigationStack.
+// Using an enum lets us push both an active session and an ended session's
+// detail page from the same stack without ambiguity.
+enum RecordDestination: Hashable {
+    case activeSession(DrinkingSession)
+    case sessionDetail(DrinkingSession)
+}
+
 struct RecordTab: View {
     @Environment(\.modelContext) private var modelContext
     let activeSession: DrinkingSession?
@@ -135,8 +162,10 @@ struct RecordTab: View {
     // Shared tracker from RootView — already holds location permission state
     // granted during onboarding, so the map loads immediately if allowed.
     var locationTracker: LocationTracker
+    // Called by ContentView to switch tabs and push the detail into History.
+    var onSessionEnded: (DrinkingSession) -> Void
 
-    @State private var navigationPath = NavigationPath()
+    @State private var navigationPath: [RecordDestination] = []
     // Step 1: warn about missing location before the safety disclaimer
     @State private var showingLocationWarning = false
     // Step 2: safety disclaimer (shown after location warning is dismissed or skipped)
@@ -206,7 +235,7 @@ struct RecordTab: View {
 
                     // Bottom button
                     if let session = activeSession {
-                        NavigationLink(value: session) {
+                        NavigationLink(value: RecordDestination.activeSession(session)) {
                             Label("View Session", systemImage: "arrow.right.circle.fill")
                                 .font(.headline)
                                 .foregroundStyle(.white)
@@ -239,9 +268,18 @@ struct RecordTab: View {
                         .frame(height: 30)
                 }
             }
-            .navigationDestination(for: DrinkingSession.self) { session in
-                ActiveSessionView(session: session, userProfile: userProfile) { _ in
-                    navigationPath = NavigationPath()
+            .navigationDestination(for: RecordDestination.self) { destination in
+                switch destination {
+                case .activeSession(let session):
+                    ActiveSessionView(session: session, userProfile: userProfile) { endedSession in
+                        // Clear the Record tab stack, then let ContentView switch to
+                        // History and push the detail there.
+                        navigationPath = []
+                        onSessionEnded(endedSession)
+                    }
+                case .sessionDetail:
+                    // Unused — detail is now always in the History tab stack.
+                    EmptyView()
                 }
             }
             // Location warning — shown first when location access is missing
@@ -287,7 +325,7 @@ struct RecordTab: View {
         let session = DrinkingSession()
         withAnimation {
             modelContext.insert(session)
-            navigationPath.append(session)
+            navigationPath.append(.activeSession(session))
         }
         LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
     }
