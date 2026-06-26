@@ -40,7 +40,17 @@ final class AuthenticationManager: NSObject {
         static let provider    = "auth.provider"
     }
 
-    private let defaults = UserDefaults(suiteName: "group.com.lkartvedt.PourChoices")!
+    // Use the App Group suite so the widget extension can read auth state.
+    // Falls back to standard UserDefaults if the App Group isn't provisioned yet
+    // (e.g. first run on a new device before entitlements are registered).
+    private let defaults: UserDefaults = {
+        if let suite = UserDefaults(suiteName: "group.com.lkartvedt.PourChoices") {
+            print("[Auth] Using App Group UserDefaults")
+            return suite
+        }
+        print("[Auth] WARNING: App Group not available — falling back to standard UserDefaults")
+        return .standard
+    }()
 
     var state: AuthState = .unknown
     // Firebase UID -- used as the key for all Firestore documents
@@ -57,15 +67,23 @@ final class AuthenticationManager: NSObject {
     // MARK: - Session Restore
 
     private func restoreSession() {
+        print("[Auth] restoreSession() — checking persisted credentials")
+
         // Restore Firebase session first
         if let firebaseUser = Auth.auth().currentUser {
             firebaseUID = firebaseUser.uid
+            print("[Auth] Firebase session restored — UID: \(firebaseUser.uid)")
+        } else {
+            print("[Auth] No active Firebase session")
         }
 
         guard let userID = defaults.string(forKey: Keys.userID) else {
+            print("[Auth] No persisted Apple userID — going to signedOut")
             state = .signedOut
             return
         }
+
+        print("[Auth] Found persisted Apple userID, verifying credential state…")
         let provider = ASAuthorizationAppleIDProvider()
         provider.getCredentialState(forUserID: userID) { [weak self] credentialState, _ in
             DispatchQueue.main.async {
@@ -73,8 +91,10 @@ final class AuthenticationManager: NSObject {
                 case .authorized:
                     let name  = self?.defaults.string(forKey: Keys.displayName)
                     let email = self?.defaults.string(forKey: Keys.email)
+                    print("[Auth] Apple credential authorized — signing in as \(name ?? "unknown")")
                     self?.state = .signedIn(userID: userID, displayName: name, email: email)
                 default:
+                    print("[Auth] Apple credential not authorized (state: \(credentialState.rawValue)) — clearing session")
                     self?.clearPersistedSession()
                     self?.state = .signedOut
                 }
@@ -104,21 +124,39 @@ final class AuthenticationManager: NSObject {
 
     // MARK: - Sign Out
 
+    // NOTE ON DATA: Signing out clears the auth token only.
+    // - SwiftData (local sessions, drink entries, etc.) stays on the device.
+    // - The Firestore user document stays in the cloud.
+    // - Signing back in with the same Apple ID restores full access to all data.
+    @MainActor
     func signOut() {
-        try? Auth.auth().signOut()
+        print("[Auth] signOut() called — current state: \(state)")
+        do {
+            try Auth.auth().signOut()
+            print("[Auth] Firebase sign-out succeeded")
+        } catch {
+            print("[Auth] Firebase sign-out error (non-fatal): \(error)")
+        }
         firebaseUID = nil
         clearPersistedSession()
         state = .signedOut
+        print("[Auth] state is now: \(state)")
     }
 
     // MARK: - Firebase Sign In
 
-    private func signInToFirebase(credential: ASAuthorizationAppleIDCredential) async {
+    private func signInToFirebase(credential: ASAuthorizationAppleIDCredential,
+                                  nonce: String?,
+                                  displayName: String?,
+                                  email: String?) async {
         guard
-            let nonce = currentNonce,
+            let nonce,
             let appleIDToken = credential.identityToken,
             let tokenString = String(data: appleIDToken, encoding: .utf8)
-        else { return }
+        else {
+            print("[Auth] signInToFirebase: missing nonce or identity token — skipping Firebase sign-in")
+            return
+        }
 
         let firebaseCredential = OAuthProvider.appleCredential(
             withIDToken: tokenString,
@@ -128,7 +166,14 @@ final class AuthenticationManager: NSObject {
 
         do {
             let result = try await Auth.auth().signIn(with: firebaseCredential)
-            await MainActor.run { self.firebaseUID = result.user.uid }
+            let uid = result.user.uid
+            await MainActor.run { self.firebaseUID = uid }
+            // Create the Firestore user document if this is the first sign-in.
+            await FirestoreService.shared.createUserIfNeeded(
+                uid: uid,
+                displayName: displayName,
+                email: email
+            )
         } catch {
             // Firebase sign-in failure is non-fatal -- local Apple auth still succeeds
             print("[AuthenticationManager] Firebase sign-in failed: \(error)")
@@ -176,6 +221,7 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
     func authorizationController(controller: ASAuthorizationController,
                                  didCompleteWithAuthorization authorization: ASAuthorization) {
         guard let appleID = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            print("[Auth] Sign-in failed — credential was not ASAuthorizationAppleIDCredential")
             signInContinuation?.resume(throwing: AuthError.credentialInvalid)
             signInContinuation = nil
             return
@@ -189,6 +235,8 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
             return parts.isEmpty ? nil : parts.joined(separator: " ")
         }()
         let email = appleID.email
+
+        print("[Auth] Apple sign-in succeeded — userID: \(userID), name: \(displayName ?? "nil"), email: \(email ?? "nil")")
 
         let storedName  = defaults.string(forKey: Keys.displayName)
         let storedEmail = defaults.string(forKey: Keys.email)
@@ -205,20 +253,30 @@ extension AuthenticationManager: ASAuthorizationControllerDelegate {
             email: email ?? storedEmail
         )
         state = newState
+        print("[Auth] state set to signedIn")
         signInContinuation?.resume(returning: newState)
         signInContinuation = nil
 
-        // Sign into Firebase with the same Apple credential
-        Task { await signInToFirebase(credential: appleID) }
+        // Capture nonce now before clearing it — the Task runs asynchronously and
+        // currentNonce = nil below would execute before the Task body reads it.
+        let capturedNonce = currentNonce
         currentNonce = nil
+
+        // Sign into Firebase with the same Apple credential, and create Firestore user doc
+        Task { await signInToFirebase(credential: appleID,
+                                      nonce: capturedNonce,
+                                      displayName: displayName ?? storedName,
+                                      email: email ?? storedEmail) }
     }
 
     func authorizationController(controller: ASAuthorizationController,
                                  didCompleteWithError error: Error) {
         let authErr: AuthError
         if let asError = error as? ASAuthorizationError, asError.code == .canceled {
+            print("[Auth] Sign-in cancelled by user")
             authErr = .cancelled
         } else {
+            print("[Auth] Sign-in error: \(error)")
             authErr = .unknown(error)
         }
         signInContinuation?.resume(throwing: authErr)
