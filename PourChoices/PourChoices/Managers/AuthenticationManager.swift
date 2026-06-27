@@ -2,6 +2,7 @@ import Foundation
 import AuthenticationServices
 import CryptoKit
 import FirebaseAuth
+import FirebaseCore
 
 // MARK: - Auth State
 
@@ -59,14 +60,22 @@ final class AuthenticationManager: NSObject {
     private var signInContinuation: CheckedContinuation<AuthState, Error>?
     private var currentNonce: String?
 
+    // Phone auth
+    private(set) var phoneVerificationID: String? = nil
+    // Held strongly so Firebase can present reCAPTCHA before it's deallocated
+    private var phoneAuthUIDelegate: FirebaseAuthUIDelegate?
+
     override init() {
         super.init()
-        restoreSession()
+        // NOTE: restoreSession() is NOT called here.
+        // Auth.auth() must not be accessed until UIApplication.shared is fully
+        // available, which isn't guaranteed during SwiftUI App.init().
+        // Call restoreSession() from AppDelegate.didFinishLaunchingWithOptions.
     }
 
     // MARK: - Session Restore
 
-    private func restoreSession() {
+    func restoreSession() {
         print("[Auth] restoreSession() — checking persisted credentials")
 
         // Restore Firebase session first
@@ -78,7 +87,16 @@ final class AuthenticationManager: NSObject {
         }
 
         guard let userID = defaults.string(forKey: Keys.userID) else {
-            print("[Auth] No persisted Apple userID — going to signedOut")
+            // No Apple userID in UserDefaults — but if Firebase has a valid session,
+            // trust it. The App Group UserDefaults read can fail due to sandbox timing.
+            if let firebaseUser = Auth.auth().currentUser {
+                print("[Auth] No persisted Apple userID but Firebase session exists — restoring from Firebase")
+                let name = firebaseUser.displayName
+                let email = firebaseUser.email
+                state = .signedIn(userID: firebaseUser.uid, displayName: name, email: email)
+                return
+            }
+            print("[Auth] No persisted Apple userID and no Firebase session — going to signedOut")
             state = .signedOut
             return
         }
@@ -94,9 +112,16 @@ final class AuthenticationManager: NSObject {
                     print("[Auth] Apple credential authorized — signing in as \(name ?? "unknown")")
                     self?.state = .signedIn(userID: userID, displayName: name, email: email)
                 default:
-                    print("[Auth] Apple credential not authorized (state: \(credentialState.rawValue)) — clearing session")
-                    self?.clearPersistedSession()
-                    self?.state = .signedOut
+                    // Apple credential revoked — but if Firebase still has a session,
+                    // keep the user signed in via Firebase.
+                    if let fbUser = Auth.auth().currentUser {
+                        print("[Auth] Apple credential revoked but Firebase session still valid — staying signed in")
+                        self?.state = .signedIn(userID: fbUser.uid, displayName: fbUser.displayName, email: fbUser.email)
+                    } else {
+                        print("[Auth] Apple credential not authorized (state: \(credentialState.rawValue)) — clearing session")
+                        self?.clearPersistedSession()
+                        self?.state = .signedOut
+                    }
                 }
             }
         }
@@ -120,6 +145,52 @@ final class AuthenticationManager: NSObject {
             controller.presentationContextProvider = self
             controller.performRequests()
         }
+    }
+
+    // MARK: - Phone Verification
+
+    /// Sends an SMS verification code to the given E.164 phone number.
+    /// Stores the verification ID so `verifyPhoneCode` can use it.
+    /// Passes the root view controller as uiDelegate so Firebase can present
+    /// its reCAPTCHA web flow on simulator / when APNs is unavailable.
+    @MainActor
+    func sendPhoneVerification(to phoneNumber: String) async throws {
+        // Forward the stored APNs token to Firebase Auth right before we need it.
+        // We defer this because calling setAPNSToken too early (in
+        // didRegisterForRemoteNotifications) can crash — Firebase Auth's internal
+        // tokenManager may not be initialized yet.
+        if let token = AppDelegate.pendingAPNsToken {
+            Auth.auth().setAPNSToken(token, type: .unknown)
+            print("[Auth] APNs token forwarded to Firebase Auth")
+        } else {
+            print("[Auth] WARNING: No APNs token available — phone auth may fall back to reCAPTCHA")
+        }
+
+        // FirebaseAuthUIDelegate wraps the key window's root VC so Firebase can
+        // present its reCAPTCHA web view when APNs is unavailable (e.g. simulator).
+        let uiDelegate = FirebaseAuthUIDelegate()
+        phoneAuthUIDelegate = uiDelegate
+        let verificationID = try await PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: uiDelegate)
+        self.phoneVerificationID = verificationID
+        print("[Auth] Phone verification SMS sent, verificationID stored")
+    }
+
+    /// Verifies the 6-digit SMS code and links the phone credential to the
+    /// current Firebase user. This confirms the number is real and belongs
+    /// to the user. The linking is harmless — it just adds phone as an
+    /// additional sign-in method alongside Apple Sign-In.
+    @MainActor
+    func verifyPhoneCode(_ code: String) async throws {
+        guard let verificationID = phoneVerificationID else {
+            throw AuthError.unknown(NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "No verification ID. Call sendPhoneVerification first."]))
+        }
+        guard let currentUser = Auth.auth().currentUser else {
+            throw AuthError.unknown(NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "No signed-in Firebase user to link phone to."]))
+        }
+        let credential = PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: code)
+        _ = try await currentUser.link(with: credential)
+        phoneVerificationID = nil
+        print("[Auth] Phone credential linked to Firebase user")
     }
 
     // MARK: - Sign Out
@@ -293,5 +364,41 @@ extension AuthenticationManager: ASAuthorizationControllerPresentationContextPro
             .compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive }
         return scene?.windows.first(where: { $0.isKeyWindow }) ?? UIWindow()
+    }
+}
+
+// MARK: - Firebase reCAPTCHA UI Delegate
+
+/// Explicit AuthUIDelegate that presents Firebase's reCAPTCHA web view.
+/// UIHostingController does NOT conform to AuthUIDelegate, so we wrap it here.
+/// On a real device with APNs, Firebase never calls present/dismiss on this.
+final class FirebaseAuthUIDelegate: NSObject, AuthUIDelegate {
+    func present(_ viewControllerToPresent: UIViewController, animated flag: Bool, completion: (() -> Void)? = nil) {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows.first(where: { $0.isKeyWindow })?
+            .rootViewController else {
+            completion?()
+            return
+        }
+        // Walk up to the topmost presented VC
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.present(viewControllerToPresent, animated: flag, completion: completion)
+    }
+
+    func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows.first(where: { $0.isKeyWindow })?
+            .rootViewController else {
+            completion?()
+            return
+        }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.dismiss(animated: flag, completion: completion)
     }
 }

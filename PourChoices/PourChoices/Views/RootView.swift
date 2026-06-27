@@ -13,6 +13,7 @@ struct RootView: View {
     // so the map reacts the moment location permission is granted during onboarding.
     @State private var locationTracker = LocationTracker()
 
+    @State private var showingUsernameSetup = false
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
 
@@ -46,6 +47,15 @@ struct RootView: View {
                         ProgressView().tint(.white)
                     }
                     .task { await subscriptions.loadProductAndStatus() }
+                } else if !userProfile.hasCompletedSignIn {
+                    // Username setup — shown before subscription so users get invested first
+                    if let uid = auth.firebaseUID {
+                        UsernameSetupView(
+                            userProfile: userProfile,
+                            uid: uid,
+                            onComplete: { showingAgeVerification = !userProfile.hasCompletedAgeVerification }
+                        )
+                    }
                 } else if subscriptions.hasAccess {
                     ContentView(locationTracker: locationTracker)
                         .sheet(isPresented: $showingAgeVerification) {
@@ -58,8 +68,6 @@ struct RootView: View {
                         }
                         .onAppear {
                             PourChoicesApp.closeAbandonedSessionsIfNeeded()
-                            // Notification permission is deferred until the user taps
-                            // "Start Session" for the first time (handled in RecordTab).
                             NotificationManager.schedulePartyNightNotification()
 
                             if !userProfile.hasCompletedAgeVerification {

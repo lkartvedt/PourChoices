@@ -14,6 +14,7 @@ import UserNotifications
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationManager.self) private var auth
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
     @Query private var userProfiles: [UserProfile]
 
@@ -28,8 +29,13 @@ struct ContentView: View {
     // Record tab's navigation path is lifted here so the widget URL handler
     // can push the active session without needing to reach into RecordTab.
     @State private var recordPath: [RecordDestination] = []
+    @State private var friendsManager: FriendsManager? = nil
 
     enum Tab { case history, stats, record, friends, profile }
+
+    private var currentUID: String? {
+        auth.firebaseUID
+    }
 
     var activeSession: DrinkingSession? {
         sessions.first { $0.isActive }
@@ -74,21 +80,41 @@ struct ContentView: View {
             .tabItem { Label("Record", systemImage: "record.circle") }
             .tag(Tab.record)
 
-            FriendsTab()
-                .tabItem { Label("Friends", systemImage: "person.2") }
-                .tag(Tab.friends)
+            Group {
+                if let manager = friendsManager, let uid = currentUID {
+                    FriendsTabView(friendsManager: manager, currentUID: uid)
+                } else {
+                    ProgressView()
+                }
+            }
+            .tabItem { Label("Friends", systemImage: "person.2") }
+            .tag(Tab.friends)
 
             ProfileTab(profile: userProfile)
                 .tabItem { Label("Profile", systemImage: "person.circle") }
                 .tag(Tab.profile)
         }
         .onOpenURL { url in
-            // Launched from the Live Activity widget — go straight to the active session.
-            guard url.scheme == "pourchocies",
-                  url.host == "active-session",
-                  let session = activeSession else { return }
-            selectedTab = .record
-            recordPath = [.activeSession(session)]
+            guard url.scheme == "pourchocies" else { return }
+            if url.host == "active-session", let session = activeSession {
+                // Launched from the Live Activity widget
+                selectedTab = .record
+                recordPath = [.activeSession(session)]
+            } else if url.host == "invite",
+                      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                      let fromUID = components.queryItems?.first(where: { $0.name == "from" })?.value,
+                      currentUID != nil {
+                // Someone tapped our invite link — send them a friend request automatically
+                selectedTab = .friends
+                if let manager = friendsManager {
+                    Task { await manager.sendRequest(to: fromUID) }
+                }
+            }
+        }
+        .onAppear {
+            if let uid = currentUID, friendsManager == nil {
+                friendsManager = FriendsManager(uid: uid)
+            }
         }
     }
 
@@ -429,22 +455,6 @@ struct RecordTab: View {
                     try? modelContext.save()
                 }
             }
-        }
-    }
-}
-
-// MARK: - Friends Tab
-
-struct FriendsTab: View {
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                "Coming Soon",
-                systemImage: "person.2",
-                description: Text("Connect with friends here")
-            )
-            .navigationTitle("Friends")
-            .navigationBarTitleDisplayMode(.inline)
         }
     }
 }
