@@ -12,56 +12,314 @@ import MapKit
 import ActivityKit
 import UserNotifications
 
-struct SessionDetailDestination: Hashable {
-    let session: DrinkingSession
-}
-
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(AuthenticationManager.self) private var auth
     @Query(sort: \DrinkingSession.startTime, order: .reverse) private var sessions: [DrinkingSession]
     @Query private var userProfiles: [UserProfile]
-    
-    @State private var showingNewSession = false
-    @State private var showingAgeVerification = false
-    @State private var showingOnboarding = false
-    @State private var showingSessionWarning = false
-    @State private var navigationPath = NavigationPath()
-    
+
+    // Passed in from RootView so the same tracker instance that received
+    // permission during onboarding drives the map here immediately.
+    var locationTracker: LocationTracker
+
+    @State private var selectedTab: Tab = .record
+    // History tab's navigation path is lifted here so RecordTab can push a
+    // session detail into it when a session ends.
+    @State private var historyPath: [DrinkingSession] = []
+    // Record tab's navigation path is lifted here so the widget URL handler
+    // can push the active session without needing to reach into RecordTab.
+    @State private var recordPath: [RecordDestination] = []
+    @State private var friendsManager: FriendsManager? = nil
+
+    enum Tab { case history, stats, record, friends, profile }
+
+    private var currentUID: String? {
+        auth.firebaseUID
+    }
+
     var activeSession: DrinkingSession? {
         sessions.first { $0.isActive }
     }
-    
+
     var userProfile: UserProfile {
         if let profile = userProfiles.first {
             return profile
         } else {
-            // Create default profile
             let newProfile = UserProfile()
             modelContext.insert(newProfile)
             return newProfile
         }
     }
-    
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            HistoryTab(
+                sessions: sessions,
+                userProfile: userProfile,
+                deleteSessions: deleteSessions,
+                navigationPath: $historyPath
+            )
+            .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+            .tag(Tab.history)
+
+            StatsTab()
+                .tabItem { Label("Stats", systemImage: "chart.bar") }
+                .tag(Tab.stats)
+
+            RecordTab(
+                activeSession: activeSession,
+                userProfile: userProfile,
+                locationTracker: locationTracker,
+                onSessionEnded: { session in
+                    // Switch to History tab and push the detail page for the ended session.
+                    historyPath = [session]
+                    selectedTab = .history
+                },
+                navigationPath: $recordPath
+            )
+            .tabItem { Label("Record", systemImage: "record.circle") }
+            .tag(Tab.record)
+
+            Group {
+                if let manager = friendsManager, let uid = currentUID {
+                    FriendsTabView(friendsManager: manager, currentUID: uid)
+                } else {
+                    ProgressView()
+                }
+            }
+            .tabItem { Label("Friends", systemImage: "person.2") }
+            .tag(Tab.friends)
+
+            ProfileTab(profile: userProfile)
+                .tabItem { Label("Profile", systemImage: "person.circle") }
+                .tag(Tab.profile)
+        }
+        .onOpenURL { url in
+            guard url.scheme == "pourchocies" else { return }
+            if url.host == "active-session", let session = activeSession {
+                // Launched from the Live Activity widget
+                selectedTab = .record
+                recordPath = [.activeSession(session)]
+            } else if url.host == "invite",
+                      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                      let fromUID = components.queryItems?.first(where: { $0.name == "from" })?.value,
+                      currentUID != nil {
+                // Someone tapped our invite link — send them a friend request automatically
+                selectedTab = .friends
+                if let manager = friendsManager {
+                    Task { await manager.sendRequest(to: fromUID) }
+                }
+            }
+        }
+        .onAppear {
+            if let uid = currentUID, friendsManager == nil {
+                friendsManager = FriendsManager(uid: uid)
+            }
+        }
+    }
+
+    private func deleteSessions(offsets: IndexSet) {
+        withAnimation {
+            let inactiveSessions = sessions.filter { !$0.isActive }
+            for index in offsets {
+                modelContext.delete(inactiveSessions[index])
+            }
+        }
+    }
+}
+
+// MARK: - History Tab
+
+struct HistoryTab: View {
+    let sessions: [DrinkingSession]
+    let userProfile: UserProfile
+    let deleteSessions: (IndexSet) -> Void
+    @Binding var navigationPath: [DrinkingSession]
+
+    var pastSessions: [DrinkingSession] { sessions.filter { !$0.isActive } }
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) { // path bound to ContentView.recordPath
+            Group {
+                if pastSessions.isEmpty {
+                    ContentUnavailableView(
+                        "No Sessions Yet",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Your past sessions will appear here")
+                    )
+                } else {
+                    List {
+                        ForEach(pastSessions) { session in
+                            NavigationLink(value: session) {
+                                PastSessionRow(session: session, userProfile: userProfile)
+                            }
+                        }
+                        .onDelete(perform: deleteSessions)
+                    }
+                }
+            }
+            .navigationTitle("History")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: DrinkingSession.self) { session in
+                SessionDetailView(session: session, userProfile: userProfile)
+            }
+        }
+    }
+}
+
+// MARK: - Stats Tab
+
+struct StatsTab: View {
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView(
+                "Coming Soon",
+                systemImage: "chart.bar",
+                description: Text("Session statistics will appear here")
+            )
+            .navigationTitle("Stats")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - Record Tab
+
+// Typed navigation destinations within the Record tab's NavigationStack.
+// Using an enum lets us push both an active session and an ended session's
+// detail page from the same stack without ambiguity.
+enum RecordDestination: Hashable {
+    case activeSession(DrinkingSession)
+    case sessionDetail(DrinkingSession)
+}
+
+struct RecordTab: View {
+    @Environment(\.modelContext) private var modelContext
+    let activeSession: DrinkingSession?
+    let userProfile: UserProfile
+    // Shared tracker from RootView — already holds location permission state
+    // granted during onboarding, so the map loads immediately if allowed.
+    var locationTracker: LocationTracker
+    // Called by ContentView to switch tabs and push the detail into History.
+    var onSessionEnded: (DrinkingSession) -> Void
+    // Bound to ContentView so the URL handler can push the active session here.
+    @Binding var navigationPath: [RecordDestination]
+    // Step 1: warn about missing location before the safety disclaimer
+    @State private var showingLocationWarning = false
+    // Step 2: safety disclaimer (shown after location warning is dismissed or skipped)
+    @State private var showingSessionWarning = false
+    @State private var mapPosition: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var mapStyleIndex: Int = 0
+
+    // Cycles through standard → satellite → hybrid
+    private var currentMapStyle: MapStyle {
+        switch mapStyleIndex % 3 {
+        case 0: return .standard
+        case 1: return .imagery
+        default: return .hybrid
+        }
+    }
+
+    private var mapStyleIconName: String {
+        switch mapStyleIndex % 3 {
+        case 0: return "square.3.layers.3d"
+        case 1: return "map"
+        default: return "square.3.layers.3d.slash"
+        }
+    }
+
+    private var locationAuthorized: Bool {
+        locationTracker.authorizationStatus == .authorizedWhenInUse ||
+        locationTracker.authorizationStatus == .authorizedAlways
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
-            VStack(spacing: 0) {
-                if let session = activeSession {
-                    // Show a card to navigate into the active session
-                    VStack(spacing: 10) {
-                        Image("Cheers")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(.top, 30)
-                        
-                        Text("Active Session")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Text("You're currently tracking")
-                            .foregroundStyle(.secondary)
-                        
-                        NavigationLink(value: session) {
+            ZStack {
+                // Map background showing current location — interactive
+                Map(position: $mapPosition) {
+                    UserAnnotation()
+                        .mapOverlayLevel(level: .aboveRoads)
+                }
+                .tint(.blue)
+                .mapStyle(currentMapStyle)
+                .ignoresSafeArea()
+                // When permission is granted (e.g. right after onboarding), snap the
+                // camera to the user's current position.
+                .onChange(of: locationTracker.authorizationStatus) { _, newStatus in
+                    if newStatus == .authorizedWhenInUse || newStatus == .authorizedAlways {
+                        mapPosition = .userLocation(fallback: .automatic)
+                    }
+                }
+
+                // Black ombre: pure black at top, transparent by halfway — decorative only
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .top,
+                    endPoint: UnitPoint(x: 0.8, y: 0.8)
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+                // Map control buttons — bottom-right, above the main action button
+                VStack(spacing: 10) {
+                    // Cycle map style: standard → satellite → hybrid
+                    Button {
+                        mapStyleIndex += 1
+                    } label: {
+                        Image(systemName: mapStyleIconName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.accent)
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                    }
+
+                    // Re-center map on user location
+                    Button {
+                        mapPosition = .userLocation(fallback: .automatic)
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(.blue)
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                    }
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 110)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+
+                // Content pinned to top and bottom; Spacer passes touches through to the map
+                VStack(spacing: 10) {
+                    // Top text — sits over the dark gradient
+                    if let _ = activeSession {
+                        VStack(spacing: 4) {
+                            Text("Active Session")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            Text("You're currently tracking")
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .padding(.top, 10)
+                    } else {
+                        VStack(spacing: 4) {
+                            Text("No Active Session")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.white)
+                            Text("Start tracking your night")
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                        .padding(.top, 10)
+                    }
+
+                    Spacer()
+                        .allowsHitTesting(false)
+
+                    // Bottom button
+                    if let session = activeSession {
+                        NavigationLink(value: RecordDestination.activeSession(session)) {
                             Label("View Session", systemImage: "arrow.right.circle.fill")
                                 .font(.headline)
                                 .foregroundStyle(.white)
@@ -70,44 +328,9 @@ struct ContentView: View {
                                 .background(Color.green, in: Capsule())
                         }
                         .padding(.horizontal, 40)
-                        .padding(.top, 20)
-                    }
-                    .padding(.bottom, 30)
-                    
-                    // Past sessions list
-                    if !sessions.isEmpty {
-                        List {
-                            Section("History") {
-                                ForEach(sessions.filter { !$0.isActive }) { session in
-                                    NavigationLink {
-                                        SessionDetailView(session: session, userProfile: userProfile)
-                                    } label: {
-                                        PastSessionRow(session: session, userProfile: userProfile)
-                                    }
-                                }
-                                .onDelete(perform: deleteSessions)
-                            }
-                        }
+                        .padding(.bottom, 40)
                     } else {
-                        Spacer()
-                    }
-                } else {
-                    // No active session - fixed header
-                    VStack(spacing: 10) {
-                        Image("Cheers")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(.top, 30)
-                        
-                        Text("No Active Session")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                        
-                        Text("Start tracking your night")
-                            .foregroundStyle(.secondary)
-                        
-                        Button(action: startNewSession) {
+                        Button(action: handleStartSessionTap) {
                             Label("Start Session", systemImage: "play.fill")
                                 .font(.headline)
                                 .foregroundStyle(.black)
@@ -116,37 +339,9 @@ struct ContentView: View {
                                 .background(Color.accent, in: Capsule())
                         }
                         .padding(.horizontal, 40)
-                        .padding(.top, 20)
-                    }
-                    .padding(.bottom, 30)
-                    
-                    // Past sessions list
-                    if !sessions.isEmpty {
-                        List {
-                            Section("History") {
-                                ForEach(sessions.filter { !$0.isActive }) { session in
-                                    NavigationLink {
-                                        SessionDetailView(session: session, userProfile: userProfile)
-                                    } label: {
-                                        PastSessionRow(session: session, userProfile: userProfile)
-                                    }
-                                }
-                                .onDelete(perform: deleteSessions)
-                            }
-                        }
-                    } else {
-                        Spacer()
+                        .padding(.bottom, 40)
                     }
                 }
-            }
-            .navigationDestination(for: DrinkingSession.self) { session in
-                ActiveSessionView(session: session, userProfile: userProfile) { endedSession in
-                    navigationPath = NavigationPath()
-                    navigationPath.append(SessionDetailDestination(session: endedSession))
-                }
-            }
-            .navigationDestination(for: SessionDetailDestination.self) { destination in
-                SessionDetailView(session: destination.session, userProfile: userProfile)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -156,63 +351,122 @@ struct ContentView: View {
                         .scaledToFit()
                         .frame(height: 30)
                 }
-                
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        ProfileSettingsView(profile: userProfile)
-                    } label: {
-                        Image(systemName: "person.circle")
+            }
+            .onAppear {
+                // Pre-warm the tracker so currentLocation is available by the
+                // time the user taps Start Session. Safe to call when already tracking.
+                if locationAuthorized {
+                    locationTracker.startTracking()
+                }
+            }
+            .navigationDestination(for: RecordDestination.self) { destination in
+                switch destination {
+                case .activeSession(let session):
+                    ActiveSessionView(session: session, userProfile: userProfile) { endedSession in
+                        // Clear the Record tab stack, then let ContentView switch to
+                        // History and push the detail there.
+                        navigationPath = []
+                        onSessionEnded(endedSession)
+                    }
+                case .sessionDetail:
+                    // Unused — detail is now always in the History tab stack.
+                    EmptyView()
+                }
+            }
+            // Location warning — shown first when location access is missing
+            .alert("Location Access Off", isPresented: $showingLocationWarning) {
+                Button("Enable in Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
                     }
                 }
-            }
-            .sheet(isPresented: $showingAgeVerification) {
-                AgeVerificationView(profile: userProfile, showingOnboarding: $showingOnboarding)
-                    .interactiveDismissDisabled()
-            }
-            .sheet(isPresented: $showingOnboarding) {
-                OnboardingView(profile: userProfile)
-                    .interactiveDismissDisabled()
-            }
-            .alert("Safety Disclaimer", isPresented: $showingSessionWarning) {
-                Button("Accept") {
-                    createNewSession()
+                Button("Continue Anyway") {
+                    // User acknowledged — proceed to the safety disclaimer
+                    showingSessionWarning = true
                 }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Without location access the map won't show your position and bar hops won't be logged automatically. You can enable it in Settings > Privacy & Security > Location Services > PourChoices.")
+            }
+            // Safety disclaimer — shown after location check passes
+            .alert("Safety Disclaimer", isPresented: $showingSessionWarning) {
+                Button("Accept") { createNewSession() }
                 Button("Cancel", role: .cancel) { }
             } message: {
                 Text("DO NOT DRIVE after consuming any alcohol. BAC calculations are estimates based on user-provided data and may not be accurate. This app cannot determine your actual BAC or fitness to drive. Never use this app to decide if you are safe to drive. Always use a designated driver, rideshare, or public transportation.")
             }
-            .onAppear {
-                // Check if user needs age verification first
-                if !userProfile.hasCompletedAgeVerification {
-                    showingAgeVerification = true
-                } else if !userProfile.hasCompletedOnboarding {
-                    showingOnboarding = true
+        }
+    }
+
+    // Called when the user taps "Start Session"
+    private func handleStartSessionTap() {
+        if locationAuthorized {
+            showingSessionWarning = true
+        } else {
+            showingLocationWarning = true
+        }
+    }
+
+    private func createNewSession() {
+        // Request notification permission the first time a session is created —
+        // after the user has chosen to start tracking, which is the right moment
+        // to explain why we need notifications.
+        NotificationManager.requestPermission()
+
+        let session = DrinkingSession()
+        withAnimation {
+            modelContext.insert(session)
+            navigationPath.append(.activeSession(session))
+        }
+        LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
+
+        // Log session start location.
+        // If we already have a fix, insert the stop immediately and geocode in the background.
+        // If not (tracker just started), poll briefly — the OS usually delivers within 1-2s.
+        if locationAuthorized {
+            Task {
+                // Use the current fix if available, otherwise wait up to 5s for the first one.
+                var resolvedLocation = locationTracker.currentLocation
+                if resolvedLocation == nil {
+                    for _ in 0..<10 {
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s each, 5s total
+                        if locationTracker.currentLocation != nil {
+                            resolvedLocation = locationTracker.currentLocation
+                            break
+                        }
+                    }
+                }
+
+                guard let location = resolvedLocation else { return }
+
+                let startStop = LocationStop(
+                    locationName: "Loading...",
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude
+                )
+                await MainActor.run {
+                    session.locations.append(startStop)
+                    modelContext.insert(startStop)
+                }
+
+                let venueName = await locationTracker.getBestVenueName(for: location)
+                await MainActor.run {
+                    startStop.locationName = venueName
+                    try? modelContext.save()
                 }
             }
         }
     }
-    
-    private func startNewSession() {
-        showingSessionWarning = true
-    }
-    
-    private func createNewSession() {
-        let session = DrinkingSession()
-        withAnimation {
-            modelContext.insert(session)
-            // Navigate into the new session
-            navigationPath.append(session)
-        }
-        // Start a Live Activity for the new session (BAC starts at 0)
-        LiveActivityManager.startActivity(session: session, peakBAC: 0.0, timeToBAC: 0)
-    }
-    
-    private func deleteSessions(offsets: IndexSet) {
-        withAnimation {
-            let inactiveSessions = sessions.filter { !$0.isActive }
-            for index in offsets {
-                modelContext.delete(inactiveSessions[index])
-            }
+}
+
+// MARK: - Profile Tab
+
+struct ProfileTab: View {
+    @Bindable var profile: UserProfile
+
+    var body: some View {
+        NavigationStack {
+            ProfileSettingsView(profile: profile)
         }
     }
 }
@@ -279,31 +533,32 @@ struct ActiveSessionView: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
-        
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
+
         // Add explicit location stops
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from drinks
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from food
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         
         // Add locations from water
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
@@ -496,6 +751,7 @@ struct ActiveSessionView: View {
         } message: {
             Text("Location access is required to log locations. Please enable location permissions in Settings > Privacy & Security > Location Services > Pour Choices.")
         }
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             setupLocationTracking()
             recalculateBAC()
@@ -519,106 +775,23 @@ struct ActiveSessionView: View {
         }
     }
     
-    /// Returns true if an automatic stop with this name already exists in the session.
-    private func isDuplicateAutoLocation(_ name: String) -> Bool {
-        session.locations.contains { !$0.isManualLog && $0.locationName == name }
-    }
-
     private func setupLocationTracking() {
-        // Set up callback for automatic location changes
-        locationTracker.onSignificantLocationChange = { location, venueName in
-            let stopName = venueName ?? "Unknown Location"
-            guard !self.isDuplicateAutoLocation(stopName) else {
-                print("Skipping duplicate auto location: \(stopName)")
-                return
-            }
-            let stop = LocationStop(
-                locationName: stopName,
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude
-            )
-            session.locations.append(stop)
-            modelContext.insert(stop)
-        }
-        
-        // Set up callback for when permission is first granted
-        locationTracker.onInitialPermissionGranted = { [weak locationTracker] in
-            guard let locationTracker = locationTracker else { return }
-            
-            // Log initial location after permission is granted
-            Task {
-                // Wait for location to be acquired
-                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-                
-                guard let location = locationTracker.currentLocation else {
-                    print("⚠️ No location available after permission granted")
-                    return
-                }
-                
-                let venueName = await locationTracker.getBestVenueName(for: location)
-                
-                await MainActor.run {
-                    guard !self.isDuplicateAutoLocation(venueName) else {
-                        print("Skipping duplicate initial location after permission: \(venueName)")
-                        return
-                    }
-                    let stop = LocationStop(
-                        locationName: venueName,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude
-                    )
-                    session.locations.append(stop)
-                    modelContext.insert(stop)
-                    print("Logged initial location after permission: \(venueName)")
-                }
-            }
-        }
-        
-        // Check authorization status first
+        // Only start the location manager so currentLocation stays fresh for
+        // drink/food/water coordinate capture. Automatic LocationStop entries
+        // are intentionally NOT created here — stops are only logged at:
+        //   • session start  (in createNewSession, RecordTab)
+        //   • session end    (in endSession)
+        //   • manual tap     (in addLocation)
+        locationTracker.onSignificantLocationChange = nil
+        locationTracker.onInitialPermissionGranted = nil
+
         let status = locationTracker.authorizationStatus
-        
         switch status {
-        case .notDetermined:
-            // Request permission - the delegate will handle starting tracking after permission is granted
-            locationTracker.requestPermission()
-            
         case .authorizedWhenInUse, .authorizedAlways:
-            // Permission already granted - start tracking immediately
             locationTracker.startTracking()
-            
-            // Log initial location after a short delay to ensure we have a location
-            Task {
-                // Wait a moment for location to be acquired
-                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
-                
-                guard let location = locationTracker.currentLocation else {
-                    print("⚠️ No location available yet")
-                    return
-                }
-                
-                let venueName = await locationTracker.getBestVenueName(for: location)
-                
-                await MainActor.run {
-                    guard !self.isDuplicateAutoLocation(venueName) else {
-                        print("Skipping duplicate initial location: \(venueName)")
-                        return
-                    }
-                    let stop = LocationStop(
-                        locationName: venueName,
-                        latitude: location.coordinate.latitude,
-                        longitude: location.coordinate.longitude
-                    )
-                    session.locations.append(stop)
-                    modelContext.insert(stop)
-                    print("Logged initial location: \(venueName)")
-                }
-            }
-            
         case .denied, .restricted:
-            // Show alert that location is denied
             showLocationPermissionAlert = true
-            
-        @unknown default:
+        default:
             break
         }
     }
@@ -1268,7 +1441,7 @@ struct AddDrinkView: View {
                                         Text("None")
                                             .font(.subheadline)
                                             .fontWeight(.medium)
-                                            .foregroundStyle(selectedSubtype == "None" ? Color.black : Color.primary)
+                                            .foregroundStyle(selectedSubtype == "None" ? Color.black : Color.accent)
                                             .padding(.horizontal, 16)
                                             .padding(.vertical, 8)
                                             .background(
@@ -1287,7 +1460,7 @@ struct AddDrinkView: View {
                                             Text(subtype.name)
                                                 .font(.subheadline)
                                                 .fontWeight(.medium)
-                                                .foregroundStyle(selectedSubtype == subtype.name ? Color.black : Color.primary)
+                                                .foregroundStyle(selectedSubtype == subtype.name ? Color.black : Color.accent)
                                                 .padding(.horizontal, 16)
                                                 .padding(.vertical, 8)
                                                 .background(
@@ -1320,7 +1493,7 @@ struct AddDrinkView: View {
                                             .foregroundStyle(isDouble ? Color.accent : Color.secondary)
                                         Text("Make it a double")
                                             .font(.subheadline)
-                                            .foregroundStyle(isDouble ? Color.primary : Color.secondary)
+                                            .foregroundStyle(isDouble ? Color.accent : Color.secondary)
                                     }
                                     .padding(.horizontal)
                                     .padding(.top, 12)
@@ -1614,7 +1787,7 @@ struct AddOtherView: View {
                                         Text("\(Int(mg))mg")
                                             .font(.subheadline)
                                             .fontWeight(.medium)
-                                            .foregroundStyle(zynStrength == mg ? Color.black : Color.primary)
+                                            .foregroundStyle(zynStrength == mg ? Color.black : Color.accent)
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 10)
                                             .background(
@@ -1636,7 +1809,7 @@ struct AddOtherView: View {
                                         .foregroundStyle(preferredZynMg == zynStrength ? Color.accent : Color.secondary)
                                     Text(preferredZynMg == zynStrength ? "Default strength" : "Set as my default")
                                         .font(.caption)
-                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.primary : Color.secondary)
+                                        .foregroundStyle(preferredZynMg == zynStrength ? Color.accent : Color.secondary)
                                 }
                                 .padding(.horizontal)
                                 .padding(.top, 10)
@@ -1719,35 +1892,27 @@ struct PastSessionRow: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
-        
-        // Add explicit location stops
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from drinks
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from food
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
-        // Add locations from water
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
-        
         return uniqueLocationNames.count
     }
     
@@ -1787,10 +1952,7 @@ struct SessionDetailView: View {
     let session: DrinkingSession
     let userProfile: UserProfile
     
-    @State private var mapRegion = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-    )
+    @State private var mapPosition: MapCameraPosition = .automatic
     
     var peakBAC: Double {
         session.peakBAC
@@ -1802,23 +1964,24 @@ struct SessionDetailView: View {
     
     var uniqueLocationsCount: Int {
         var uniqueLocationNames = Set<String>()
+        let invalidNames: Set<String> = ["Unknown Location", "Loading..."]
         for location in session.locations {
-            if let name = location.locationName, !name.isEmpty, name != "Unknown Location" {
+            if let name = location.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for drink in session.drinks {
-            if let name = drink.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = drink.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for food in session.food {
-            if let name = food.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = food.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
         for water in session.water {
-            if let name = water.locationName, !name.isEmpty, name != "Unknown Location", name != "Loading..." {
+            if let name = water.locationName, !name.isEmpty, !invalidNames.contains(name) {
                 uniqueLocationNames.insert(name)
             }
         }
@@ -1855,15 +2018,32 @@ struct SessionDetailView: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    // All coordinates that should appear on the session map: explicit stops
+    // plus any drink coordinates that fall at a distinct location.
+    private var allMapCoordinates: [CLLocationCoordinate2D] {
+        var coords = sortedLocations.map { $0.coordinate }
+        for drink in session.drinks {
+            if let coord = drink.coordinate { coords.append(coord) }
+        }
+        return coords
+    }
+
     @ViewBuilder private var mapSection: some View {
-        if !sortedLocations.isEmpty {
+        let hasMapData = !sortedLocations.isEmpty || session.drinks.contains(where: { $0.coordinate != nil })
+        if hasMapData {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Route")
                     .font(.headline)
                     .padding(.horizontal)
-                Map(coordinateRegion: $mapRegion, annotationItems: sortedLocations) { location in
-                    MapAnnotation(coordinate: location.coordinate) {
-                        VStack(spacing: 4) {
+                Map(position: $mapPosition) {
+                    // Route line connecting stops in chronological order
+                    if sortedLocations.count > 1 {
+                        MapPolyline(coordinates: sortedLocations.map { $0.coordinate })
+                            .stroke(.blue.opacity(0.7), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round, dash: [6, 4]))
+                    }
+                    // Numbered / flagged stops (start, end, manual)
+                    ForEach(Array(sortedLocations.enumerated()), id: \.element.id) { index, location in
+                        Annotation(location.locationName ?? "Stop", coordinate: location.coordinate) {
                             ZStack {
                                 Circle()
                                     .fill(annotationColor(for: location))
@@ -1878,23 +2058,25 @@ struct SessionDetailView: View {
                                         .foregroundColor(.white)
                                         .font(.system(size: 14))
                                 } else {
-                                    Text("\(sortedLocations.firstIndex(where: { $0.id == location.id })! + 1)")
+                                    Text("\(index + 1)")
                                         .foregroundColor(.white)
                                         .font(.system(size: 14, weight: .bold))
                                 }
                             }
-                            Text(location.locationName ?? "Unknown")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color(.systemBackground))
-                                .cornerRadius(4)
+                        }
+                    }
+                    // Drink coordinates shown as small accent dots (not stop pins)
+                    ForEach(session.drinks.filter { $0.coordinate != nil }) { drink in
+                        Annotation(drink.locationName ?? drink.drinkType, coordinate: drink.coordinate!) {
+                            Circle()
+                                .fill(Color.accent.opacity(0.85))
+                                .frame(width: 12, height: 12)
                                 .shadow(radius: 2)
                         }
                     }
                 }
                 .frame(height: 300)
-                .cornerRadius(12)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
                 .onAppear { calculateMapRegion() }
             }
@@ -2092,26 +2274,31 @@ struct SessionDetailView: View {
     }
     
     private func calculateMapRegion() {
-        guard !sortedLocations.isEmpty else { return }
-        
-        let coordinates = sortedLocations.map { $0.coordinate }
-        
-        let minLat = coordinates.map { $0.latitude }.min() ?? 0
-        let maxLat = coordinates.map { $0.latitude }.max() ?? 0
-        let minLon = coordinates.map { $0.longitude }.min() ?? 0
-        let maxLon = coordinates.map { $0.longitude }.max() ?? 0
-        
+        let coordinates = allMapCoordinates
+        guard !coordinates.isEmpty else { return }
+
+        if coordinates.count == 1 {
+            mapPosition = .region(MKCoordinateRegion(
+                center: coordinates[0],
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ))
+            return
+        }
+
+        let minLat = coordinates.map { $0.latitude }.min()!
+        let maxLat = coordinates.map { $0.latitude }.max()!
+        let minLon = coordinates.map { $0.longitude }.min()!
+        let maxLon = coordinates.map { $0.longitude }.max()!
+
         let center = CLLocationCoordinate2D(
             latitude: (minLat + maxLat) / 2,
             longitude: (minLon + maxLon) / 2
         )
-        
         let span = MKCoordinateSpan(
             latitudeDelta: max((maxLat - minLat) * 1.5, 0.01),
             longitudeDelta: max((maxLon - minLon) * 1.5, 0.01)
         )
-        
-        mapRegion = MKCoordinateRegion(center: center, span: span)
+        mapPosition = .region(MKCoordinateRegion(center: center, span: span))
     }
     
     private func durationText(from start: Date, to end: Date) -> String {
@@ -2126,6 +2313,8 @@ struct SessionDetailView: View {
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var profile: UserProfile
+    // Shared tracker passed from RootView so the map reacts immediately when permission is granted
+    var locationTracker: LocationTracker
     
     @State private var weight: Double = 150
     @State private var heightFeet: Int = 5
@@ -2169,7 +2358,7 @@ struct OnboardingView: View {
                             VStack(spacing: 16) {
                                 HStack {
                                     Text("Age")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     Text("\(profile.age)")
                                         .foregroundStyle(.secondary)
@@ -2179,7 +2368,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Height")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     HStack(spacing: 8) {
                                         Picker("", selection: $heightFeet) {
@@ -2206,7 +2395,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Weight (lbs)")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     TextField("150", value: $weight, format: .number)
                                         .keyboardType(.decimalPad)
@@ -2223,7 +2412,7 @@ struct OnboardingView: View {
                                 
                                 HStack {
                                     Text("Sex")
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(.accent)
                                     Spacer()
                                     Picker("Sex", selection: $sex) {
                                         Text("Male").tag("Male")
@@ -2288,12 +2477,16 @@ struct OnboardingView: View {
         profile.heightInches = totalHeightInches
         profile.sex = sex
         profile.hasCompletedOnboarding = true
+        // Ask for location right after the user finishes setting up their profile
+        // so the home map can load their position immediately.
+        locationTracker.requestPermission()
         dismiss()
     }
     
     private func skipOnboarding() {
         focusedField = nil
         profile.hasCompletedOnboarding = true
+        locationTracker.requestPermission()
         dismiss()
     }
 }
@@ -2301,8 +2494,6 @@ struct OnboardingView: View {
 #Preview {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: DrinkingSession.self, UserProfile.self, configurations: config)
-    
-    // Create a pre-configured profile
     let profile = UserProfile(
         weight: 170,
         heightInches: 70,
@@ -2312,8 +2503,13 @@ struct OnboardingView: View {
         hasCompletedOnboarding: true
     )
     container.mainContext.insert(profile)
-    
-    return ContentView()
+    let tabAppearance = UITabBarAppearance()
+    tabAppearance.configureWithOpaqueBackground()
+    tabAppearance.backgroundColor = UIColor.black
+    UITabBar.appearance().standardAppearance = tabAppearance
+    UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+    UITabBar.appearance().overrideUserInterfaceStyle = .dark
+    return ContentView(locationTracker: LocationTracker())
         .modelContainer(container)
         .preferredColorScheme(.dark)
 }

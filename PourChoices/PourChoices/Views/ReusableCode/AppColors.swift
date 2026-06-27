@@ -7,6 +7,16 @@
 
 import SwiftUI
 
+// MARK: - Layout constants
+
+enum AppLayout {
+    static let horizontalPadding: CGFloat = 32
+    static let buttonCornerRadius: CGFloat = 12
+    static let buttonHeight: CGFloat = 52
+}
+
+// MARK: - BAC colors
+
 enum BacColors {
     static func bac(_ bac: Double) -> Color {
         switch bac {

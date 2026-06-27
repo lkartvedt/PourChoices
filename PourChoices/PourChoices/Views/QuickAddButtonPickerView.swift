@@ -154,7 +154,7 @@ struct QuickAddButtonPickerView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("None")
                             .font(.subheadline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.accent)
                         Text("Default \(category)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -187,7 +187,7 @@ struct QuickAddButtonPickerView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(sub.name)
                                 .font(.subheadline)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(.accent)
                             Text(String(format: "%.0f%% · %.1f oz", sub.abv, sub.oz))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

@@ -1,0 +1,416 @@
+import Foundation
+import AuthenticationServices
+import CryptoKit
+import FirebaseAuth
+import FirebaseCore
+
+// MARK: - Auth State
+
+enum AuthState: Equatable {
+    case unknown
+    case signedOut
+    case signedIn(userID: String, displayName: String?, email: String?)
+}
+
+// MARK: - Auth Error
+
+enum AuthError: LocalizedError {
+    case cancelled
+    case credentialInvalid
+    case unknown(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .cancelled: return "Sign-in was cancelled."
+        case .credentialInvalid: return "The credential was invalid. Please try again."
+        case .unknown(let e): return e.localizedDescription
+        }
+    }
+}
+
+// MARK: - AuthenticationManager
+
+@Observable
+final class AuthenticationManager: NSObject {
+
+    // MARK: Persistence keys (stored in App Group so extensions can read if needed)
+    private enum Keys {
+        static let userID      = "auth.userID"
+        static let displayName = "auth.displayName"
+        static let email       = "auth.email"
+        static let provider    = "auth.provider"
+    }
+
+    // Use the App Group suite so the widget extension can read auth state.
+    // Falls back to standard UserDefaults if the App Group isn't provisioned yet
+    // (e.g. first run on a new device before entitlements are registered).
+    private let defaults: UserDefaults = {
+        if let suite = UserDefaults(suiteName: "group.com.lkartvedt.PourChoices") {
+            print("[Auth] Using App Group UserDefaults")
+            return suite
+        }
+        print("[Auth] WARNING: App Group not available — falling back to standard UserDefaults")
+        return .standard
+    }()
+
+    var state: AuthState = .unknown
+    // Firebase UID -- used as the key for all Firestore documents
+    private(set) var firebaseUID: String? = nil
+
+    private var signInContinuation: CheckedContinuation<AuthState, Error>?
+    private var currentNonce: String?
+
+    // Phone auth
+    private(set) var phoneVerificationID: String? = nil
+    // Held strongly so Firebase can present reCAPTCHA before it's deallocated
+    private var phoneAuthUIDelegate: FirebaseAuthUIDelegate?
+
+    override init() {
+        super.init()
+        // NOTE: restoreSession() is NOT called here.
+        // Auth.auth() must not be accessed until UIApplication.shared is fully
+        // available, which isn't guaranteed during SwiftUI App.init().
+        // Call restoreSession() from AppDelegate.didFinishLaunchingWithOptions.
+    }
+
+    // MARK: - Session Restore
+
+    func restoreSession() {
+        print("[Auth] restoreSession() — checking persisted credentials")
+
+        // Detect fresh install: Firebase Auth persists in the Keychain (survives
+        // app deletion), but standard UserDefaults do not. If our "has launched"
+        // flag is missing, this is a new install — sign out of any stale Keychain
+        // session so the user starts fresh.
+        let hasLaunchedKey = "auth.hasLaunchedBefore"
+        if !UserDefaults.standard.bool(forKey: hasLaunchedKey) {
+            print("[Auth] First launch detected — clearing stale Keychain session")
+            try? Auth.auth().signOut()
+            clearPersistedSession()
+            UserDefaults.standard.set(true, forKey: hasLaunchedKey)
+        }
+
+        // Restore Firebase session
+        if let firebaseUser = Auth.auth().currentUser {
+            firebaseUID = firebaseUser.uid
+            print("[Auth] Firebase session restored — UID: \(firebaseUser.uid)")
+        } else {
+            print("[Auth] No active Firebase session")
+        }
+
+        guard let userID = defaults.string(forKey: Keys.userID) else {
+            // No Apple userID in UserDefaults — but if Firebase has a valid session,
+            // trust it. The App Group UserDefaults read can fail due to sandbox timing.
+            if let firebaseUser = Auth.auth().currentUser {
+                print("[Auth] No persisted Apple userID but Firebase session exists — restoring from Firebase")
+                let name = firebaseUser.displayName
+                let email = firebaseUser.email
+                state = .signedIn(userID: firebaseUser.uid, displayName: name, email: email)
+                return
+            }
+            print("[Auth] No persisted Apple userID and no Firebase session — going to signedOut")
+            state = .signedOut
+            return
+        }
+
+        print("[Auth] Found persisted Apple userID, verifying credential state…")
+        let provider = ASAuthorizationAppleIDProvider()
+        provider.getCredentialState(forUserID: userID) { [weak self] credentialState, _ in
+            DispatchQueue.main.async {
+                switch credentialState {
+                case .authorized:
+                    let name  = self?.defaults.string(forKey: Keys.displayName)
+                    let email = self?.defaults.string(forKey: Keys.email)
+                    print("[Auth] Apple credential authorized — signing in as \(name ?? "unknown")")
+                    self?.state = .signedIn(userID: userID, displayName: name, email: email)
+                default:
+                    // Apple credential revoked — but if Firebase still has a session,
+                    // keep the user signed in via Firebase.
+                    if let fbUser = Auth.auth().currentUser {
+                        print("[Auth] Apple credential revoked but Firebase session still valid — staying signed in")
+                        self?.state = .signedIn(userID: fbUser.uid, displayName: fbUser.displayName, email: fbUser.email)
+                    } else {
+                        print("[Auth] Apple credential not authorized (state: \(credentialState.rawValue)) — clearing session")
+                        self?.clearPersistedSession()
+                        self?.state = .signedOut
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Sign In with Apple
+
+    @MainActor
+    func signInWithApple() async throws {
+        let nonce = randomNonce()
+        currentNonce = nonce
+
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = sha256(nonce)
+
+        let _: AuthState = try await withCheckedThrowingContinuation { continuation in
+            self.signInContinuation = continuation
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            controller.performRequests()
+        }
+    }
+
+    // MARK: - Phone Verification
+
+    /// Sends an SMS verification code to the given E.164 phone number.
+    /// Stores the verification ID so `verifyPhoneCode` can use it.
+    /// Passes the root view controller as uiDelegate so Firebase can present
+    /// its reCAPTCHA web flow on simulator / when APNs is unavailable.
+    @MainActor
+    func sendPhoneVerification(to phoneNumber: String) async throws {
+        // Forward the stored APNs token to Firebase Auth right before we need it.
+        // We defer this because calling setAPNSToken too early (in
+        // didRegisterForRemoteNotifications) can crash — Firebase Auth's internal
+        // tokenManager may not be initialized yet.
+        if let token = AppDelegate.pendingAPNsToken {
+            Auth.auth().setAPNSToken(token, type: .unknown)
+            print("[Auth] APNs token forwarded to Firebase Auth")
+        } else {
+            print("[Auth] WARNING: No APNs token available — phone auth may fall back to reCAPTCHA")
+        }
+
+        // FirebaseAuthUIDelegate wraps the key window's root VC so Firebase can
+        // present its reCAPTCHA web view when APNs is unavailable (e.g. simulator).
+        let uiDelegate = FirebaseAuthUIDelegate()
+        phoneAuthUIDelegate = uiDelegate
+        let verificationID = try await PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: uiDelegate)
+        self.phoneVerificationID = verificationID
+        print("[Auth] Phone verification SMS sent, verificationID stored")
+    }
+
+    /// Verifies the 6-digit SMS code and links the phone credential to the
+    /// current Firebase user. This confirms the number is real and belongs
+    /// to the user. The linking is harmless — it just adds phone as an
+    /// additional sign-in method alongside Apple Sign-In.
+    @MainActor
+    func verifyPhoneCode(_ code: String) async throws {
+        guard let verificationID = phoneVerificationID else {
+            throw AuthError.unknown(NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "No verification ID. Call sendPhoneVerification first."]))
+        }
+        guard let currentUser = Auth.auth().currentUser else {
+            throw AuthError.unknown(NSError(domain: "Auth", code: 0, userInfo: [NSLocalizedDescriptionKey: "No signed-in Firebase user to link phone to."]))
+        }
+        let credential = PhoneAuthProvider.provider().credential(withVerificationID: verificationID, verificationCode: code)
+        _ = try await currentUser.link(with: credential)
+        phoneVerificationID = nil
+        print("[Auth] Phone credential linked to Firebase user")
+    }
+
+    // MARK: - Sign Out
+
+    // NOTE ON DATA: Signing out clears the auth token only.
+    // - SwiftData (local sessions, drink entries, etc.) stays on the device.
+    // - The Firestore user document stays in the cloud.
+    // - Signing back in with the same Apple ID restores full access to all data.
+    @MainActor
+    func signOut() {
+        print("[Auth] signOut() called — current state: \(state)")
+        do {
+            try Auth.auth().signOut()
+            print("[Auth] Firebase sign-out succeeded")
+        } catch {
+            print("[Auth] Firebase sign-out error (non-fatal): \(error)")
+        }
+        firebaseUID = nil
+        clearPersistedSession()
+        state = .signedOut
+        print("[Auth] state is now: \(state)")
+    }
+
+    // MARK: - Firebase Sign In
+
+    private func signInToFirebase(credential: ASAuthorizationAppleIDCredential,
+                                  nonce: String?,
+                                  displayName: String?,
+                                  email: String?) async {
+        guard
+            let nonce,
+            let appleIDToken = credential.identityToken,
+            let tokenString = String(data: appleIDToken, encoding: .utf8)
+        else {
+            print("[Auth] signInToFirebase: missing nonce or identity token — skipping Firebase sign-in")
+            return
+        }
+
+        let firebaseCredential = OAuthProvider.appleCredential(
+            withIDToken: tokenString,
+            rawNonce: nonce,
+            fullName: credential.fullName
+        )
+
+        do {
+            let result = try await Auth.auth().signIn(with: firebaseCredential)
+            let uid = result.user.uid
+            await MainActor.run { self.firebaseUID = uid }
+            // Create the Firestore user document if this is the first sign-in.
+            await FirestoreService.shared.createUserIfNeeded(
+                uid: uid,
+                displayName: displayName,
+                email: email
+            )
+        } catch {
+            // Firebase sign-in failure is non-fatal -- local Apple auth still succeeds
+            print("[AuthenticationManager] Firebase sign-in failed: \(error)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func persistSession(userID: String, displayName: String?, email: String?, provider: String) {
+        defaults.set(userID,      forKey: Keys.userID)
+        defaults.set(displayName, forKey: Keys.displayName)
+        defaults.set(email,       forKey: Keys.email)
+        defaults.set(provider,    forKey: Keys.provider)
+    }
+
+    private func clearPersistedSession() {
+        [Keys.userID, Keys.displayName, Keys.email, Keys.provider].forEach {
+            defaults.removeObject(forKey: $0)
+        }
+    }
+
+    // MARK: - Nonce
+
+    private func randomNonce(length: Int = 32) -> String {
+        precondition(length > 0)
+        var randomBytes = [UInt8](repeating: 0, count: length)
+        let errorCode = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+        guard errorCode == errSecSuccess else {
+            fatalError("Unable to generate nonce: \(errorCode)")
+        }
+        let charset: [Character] = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        return String(randomBytes.map { charset[Int($0) % charset.count] })
+    }
+
+    private func sha256(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+
+extension AuthenticationManager: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let appleID = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            print("[Auth] Sign-in failed — credential was not ASAuthorizationAppleIDCredential")
+            signInContinuation?.resume(throwing: AuthError.credentialInvalid)
+            signInContinuation = nil
+            return
+        }
+
+        let userID = appleID.user
+        let firstName = appleID.fullName?.givenName
+        let lastName  = appleID.fullName?.familyName
+        let displayName: String? = {
+            let parts = [firstName, lastName].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }()
+        let email = appleID.email
+
+        print("[Auth] Apple sign-in succeeded — userID: \(userID), name: \(displayName ?? "nil"), email: \(email ?? "nil")")
+
+        let storedName  = defaults.string(forKey: Keys.displayName)
+        let storedEmail = defaults.string(forKey: Keys.email)
+        persistSession(
+            userID: userID,
+            displayName: displayName ?? storedName,
+            email: email ?? storedEmail,
+            provider: "apple"
+        )
+
+        let newState = AuthState.signedIn(
+            userID: userID,
+            displayName: displayName ?? storedName,
+            email: email ?? storedEmail
+        )
+        state = newState
+        print("[Auth] state set to signedIn")
+        signInContinuation?.resume(returning: newState)
+        signInContinuation = nil
+
+        // Capture nonce now before clearing it — the Task runs asynchronously and
+        // currentNonce = nil below would execute before the Task body reads it.
+        let capturedNonce = currentNonce
+        currentNonce = nil
+
+        // Sign into Firebase with the same Apple credential, and create Firestore user doc
+        Task { await signInToFirebase(credential: appleID,
+                                      nonce: capturedNonce,
+                                      displayName: displayName ?? storedName,
+                                      email: email ?? storedEmail) }
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        let authErr: AuthError
+        if let asError = error as? ASAuthorizationError, asError.code == .canceled {
+            print("[Auth] Sign-in cancelled by user")
+            authErr = .cancelled
+        } else {
+            print("[Auth] Sign-in error: \(error)")
+            authErr = .unknown(error)
+        }
+        signInContinuation?.resume(throwing: authErr)
+        signInContinuation = nil
+        currentNonce = nil
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+
+extension AuthenticationManager: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        return scene?.windows.first(where: { $0.isKeyWindow }) ?? UIWindow()
+    }
+}
+
+// MARK: - Firebase reCAPTCHA UI Delegate
+
+/// Explicit AuthUIDelegate that presents Firebase's reCAPTCHA web view.
+/// UIHostingController does NOT conform to AuthUIDelegate, so we wrap it here.
+/// On a real device with APNs, Firebase never calls present/dismiss on this.
+final class FirebaseAuthUIDelegate: NSObject, AuthUIDelegate {
+    func present(_ viewControllerToPresent: UIViewController, animated flag: Bool, completion: (() -> Void)? = nil) {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows.first(where: { $0.isKeyWindow })?
+            .rootViewController else {
+            completion?()
+            return
+        }
+        // Walk up to the topmost presented VC
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.present(viewControllerToPresent, animated: flag, completion: completion)
+    }
+
+    func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        guard let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })?
+            .windows.first(where: { $0.isKeyWindow })?
+            .rootViewController else {
+            completion?()
+            return
+        }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.dismiss(animated: flag, completion: completion)
+    }
+}

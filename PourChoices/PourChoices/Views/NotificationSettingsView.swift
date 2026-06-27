@@ -188,7 +188,7 @@ private struct WeekdayPickerView: View {
                         .padding(.vertical, 7)
                         .background(selected ? Color.accentColor : Color(.tertiarySystemFill),
                                     in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(selected ? .black : .primary)
+                        .foregroundStyle(selected ? .black : .accent)
                 }
                 .buttonStyle(.plain)
             }
