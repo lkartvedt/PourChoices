@@ -78,7 +78,19 @@ final class AuthenticationManager: NSObject {
     func restoreSession() {
         print("[Auth] restoreSession() — checking persisted credentials")
 
-        // Restore Firebase session first
+        // Detect fresh install: Firebase Auth persists in the Keychain (survives
+        // app deletion), but standard UserDefaults do not. If our "has launched"
+        // flag is missing, this is a new install — sign out of any stale Keychain
+        // session so the user starts fresh.
+        let hasLaunchedKey = "auth.hasLaunchedBefore"
+        if !UserDefaults.standard.bool(forKey: hasLaunchedKey) {
+            print("[Auth] First launch detected — clearing stale Keychain session")
+            try? Auth.auth().signOut()
+            clearPersistedSession()
+            UserDefaults.standard.set(true, forKey: hasLaunchedKey)
+        }
+
+        // Restore Firebase session
         if let firebaseUser = Auth.auth().currentUser {
             firebaseUID = firebaseUser.uid
             print("[Auth] Firebase session restored — UID: \(firebaseUser.uid)")

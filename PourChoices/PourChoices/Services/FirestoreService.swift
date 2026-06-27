@@ -68,7 +68,18 @@ final class FirestoreService {
         let ref = db.collection(Collection.users).document(uid)
         do {
             let snapshot = try await ref.getDocument()
-            if snapshot.exists { return }
+            if snapshot.exists {
+                // Document may have been created by claimUsername (merge) before
+                // signInToFirebase runs. Back-fill displayName/email if missing.
+                var updates: [String: Any] = ["updatedAt": Date()]
+                let data = snapshot.data() ?? [:]
+                if data["displayName"] == nil, let displayName { updates["displayName"] = displayName }
+                if data["email"] == nil, let email { updates["email"] = email }
+                if updates.count > 1 { // more than just updatedAt
+                    try await ref.updateData(updates)
+                }
+                return
+            }
             let user = FirestoreUser(
                 uid: uid,
                 displayName: displayName,

@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var showingUsernameSetup = false
     @State private var showingAgeVerification = false
     @State private var showingOnboarding = false
+    @State private var isCheckingExistingAccount = false
 
     var userProfile: UserProfile {
         if let profile = userProfiles.first {
@@ -48,8 +49,14 @@ struct RootView: View {
                     }
                     .task { await subscriptions.loadProductAndStatus() }
                 } else if !userProfile.hasCompletedSignIn {
-                    // Username setup — shown before subscription so users get invested first
-                    if let uid = auth.firebaseUID {
+                    if isCheckingExistingAccount {
+                        // Checking Firestore for existing account…
+                        ZStack {
+                            Color.black.ignoresSafeArea()
+                            ProgressView().tint(.white)
+                        }
+                    } else if let uid = auth.firebaseUID {
+                        // No existing account found — show username setup
                         UsernameSetupView(
                             userProfile: userProfile,
                             uid: uid,
@@ -80,6 +87,18 @@ struct RootView: View {
                     SubscriptionGateView()
                 }
             }
+        }
+        .task(id: auth.firebaseUID) {
+            // When a user signs in, check Firestore for an existing account.
+            // If they already have a username, they're a returning user — skip setup.
+            guard let uid = auth.firebaseUID,
+                  !userProfile.hasCompletedSignIn else { return }
+            isCheckingExistingAccount = true
+            if let firestoreUser = await FirestoreService.shared.getUser(uid: uid),
+               firestoreUser.username != nil {
+                userProfile.hasCompletedSignIn = true
+            }
+            isCheckingExistingAccount = false
         }
     }
 }
