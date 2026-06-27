@@ -260,9 +260,6 @@ struct ProfileSettingsView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
-        .onTapGesture {
-            isWeightFocused = false
-        }
         .task {
             if let uid = auth.firebaseUID {
                 firestoreUser = await FirestoreService.shared.getUser(uid: uid)
